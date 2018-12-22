@@ -1,36 +1,6 @@
-(define (eval exp env)
-  (cond ((self-evaluating? exp) exp)
-        ((variable? exp) (lookup-variable-value exp env))
-        ((quoted? exp) (text-of-quotation exp))
-        ((assignment? exp) (eval-assignment exp env))
-        ((definition? exp) (eval-definition exp env))
-        ((if? exp) (eval-if exp env))
-        ((lambda? exp)
-         (make-procedure (lambda-parameters exp)
-                         (lambda-body exp)
-                         env))
-        ((begin? exp)
-         (eval-sequence (begin-actions exp) env))
-        ((cond? exp) (eval (cond->if exp) env))
-        ((application? exp)
-         (apply (eval (operator exp) env)
-                (list-of-values (operands exp) env)))
-        (else
-         (error "Unknown expression type -- EVAL" exp))))
+(define-module (sicp ch4))
 
-(define (apply procedure arguments)
-  (cond ((primitive-procedure? procedure)
-         (apply-primitive-procedure procedure arguments))
-        ((compound-procedure? procedure)
-         (eval-sequence
-          (procedure-body procedure)
-          (extend-environment
-           (procedure-parameters procedure)
-           arguments
-           (procedure-environment procedure))))
-        (else
-         (error
-          "Unknown procedure type -- APPLY" procedure))))
+(use-modules (srfi srfi-1))
 
 ;; Exercise 4.1: LIST-OF-VALUES could simply be rewritten using MAP,
 ;; but isn't done here to emphasise that the implementing language
@@ -71,30 +41,17 @@
 ; Syntax of expressions
 
 (define (self-evaluating? exp)
-  (cond ((number? exp) true)
-        ((string? exp) true)
+  (cond ((number? exp) #t)
+        ((string? exp) #t)
         (else #f)))
 
 (define (variable? exp) (symbol? exp))
 
-(define (quoted? exp)
-  (tagged-list? exp 'quote))
-
 (define (text-of-quotation exp) (cadr exp))
-
-(define (tagged-list? exp tag)
-  (and (pair? exp)
-       (eq? (car exp) tag)))
-
-(define (assignment? exp)
-  (tagged-list? exp 'set!))
 
 (define (assignment-variable exp) (cadr exp))
 
 (define (assignment-value exp) (caddr exp))
-
-(define (definition? exp)
-  (tagged-list? exp 'define))
 
 (define (definition-variable exp)
   (if (symbol? (cadr exp))
@@ -107,16 +64,12 @@
       (make-lambda (cddr exp)           ; formal parameters
                    (cddr exp))))        ; body
 
-(define (lambda? exp) (tagged-list? exp 'lambda))
-
 (define (lambda-parameters exp) (cadr exp))
 
 (define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
   (cons 'lambda (cons parameters body))) ; TODO: why is this CONS and not LIST?
-
-(define (if? exp) (tagged-list? exp 'if))
 
 (define (if-predicate exp) (cadr exp))
 
@@ -129,8 +82,6 @@
 
 (define (make-if predicate consequent alternative)
   (list 'if predicate consequent alternative))
-
-(define (begin? exp) (tagged-list? exp 'begin))
 
 (define (begin-actions exp) (cdr exp))
 
@@ -166,8 +117,6 @@
 
 (define (rest-operands ops) (cdr ops))
 
-(define (cond? exp) (tagged-list? exp 'cond))
-
 (define (cond-clauses exp) (cdr exp))
 
 (define (cond-else-clause? clause)
@@ -192,3 +141,73 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
+
+(define eval-dispatch-table '())
+
+(define (put-eval-dispatch symbol fn)
+  (set! eval-dispatch-table
+        (alist-cons symbol fn eval-dispatch-table)))
+
+(define  (get-eval-dispatch symbol)
+  (let ((pair (assoc symbol eval-dispatch-table)))
+    (if pair
+        (cdr pair)
+        #f)))
+
+(define (eval exp env)
+  (cond ((self-evaluating? exp) exp)
+        ((variable? exp)
+         (lookup-variable-value exp env))
+        ((pair? exp)
+         (let ((dispatch-fn (get-eval-dispatch (car exp))))
+           (cond (dispatch-fn
+                  (dispatch-fn exp env))
+                 ((application? exp)
+                  (apply (eval (operator exp) env)
+                         (list-of-values (operands exp) env)))
+                 (else
+                  (error "Unknown expression type -- EVAL" exp)))))
+        (else
+         (error "Unknown expression type -- EVAL" exp))))
+
+(put-eval-dispatch
+ 'quote
+ (lambda (exp env)
+   (text-of-quotation exp)))
+
+(put-eval-dispatch 'set! eval-assignment)
+
+(put-eval-dispatch 'define eval-definition)
+
+(put-eval-dispatch 'if eval-if)
+
+(put-eval-dispatch
+ 'lambda
+ (lambda (exp env)
+   (make-procedure (lambda-parameters exp)
+                   (lambda-body exp)
+                   env)))
+
+(put-eval-dispatch
+ 'begin
+ (lambda (exp env)
+   (eval-sequence (begin-actions exp) env)))
+
+(put-eval-dispatch
+ 'cond
+ (lambda (exp env)
+   (eval (cond->if exp) env)))
+
+(define (apply procedure arguments)
+  (cond ((primitive-procedure? procedure)
+         (apply-primitive-procedure procedure arguments))
+        ((compound-procedure? procedure)
+         (eval-sequence
+          (procedure-body procedure)
+          (extend-environment
+           (procedure-parameters procedure)
+           arguments
+           (procedure-environment procedure))))
+        (else
+         (error
+          "Unknown procedure type -- APPLY" procedure))))
