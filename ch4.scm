@@ -38,7 +38,7 @@
     env)
   'ok)
 
-; Syntax of expressions
+;;; Syntax of expressions
 
 (define (self-evaluating? exp)
   (cond ((number? exp) #t)
@@ -120,7 +120,7 @@
 
 (define (rest-operands ops) (cdr ops))
 
-; Cond
+;;; Cond
 
 (define (cond-clauses exp) (cdr exp))
 
@@ -147,7 +147,7 @@
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
 
-; And
+;;; And
 
 (define (singleton? list)
   (and (not (null? list))
@@ -169,7 +169,7 @@
                 (eval-and-clauses (cdr clauses) env ))
             'false))))
 
-; Or
+;;; Or
 
 (define (or-clauses exp)
   (cdr exp))
@@ -223,7 +223,7 @@
       (error "Invalid LET* form" exp)
       (helper (let*-definitions exp))))
 
-; Eval and apply
+;;; Eval and apply
 
 (define eval-dispatch-table '())
 
