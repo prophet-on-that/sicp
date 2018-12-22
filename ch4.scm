@@ -117,6 +117,8 @@
 
 (define (rest-operands ops) (cdr ops))
 
+; Cond
+
 (define (cond-clauses exp) (cdr exp))
 
 (define (cond-else-clause? clause)
@@ -141,6 +143,48 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
+
+; And
+
+(define (singleton? list)
+  (and (not (null? list))
+       (null? (cdr list))))
+
+(define (and-clauses exp)
+  (cdr exp))
+
+(define (eval-and exp env)
+  (eval-and-clauses (and-clauses exp) env))
+
+(define (eval-and-clauses clauses env)
+  (if (null? clauses)
+      'true                  ; Value for an empty AND expression
+      (let ((val (eval (car clauses) env)))
+        (if (true? val)
+            (if (singleton? clauses)
+                val
+                (eval-and-clauses (cdr clauses) env ))
+            'false))))
+
+; Or
+
+(define (or-clauses exp)
+  (cdr exp))
+
+(define (eval-or exp env)
+  (eval-or-clauses (or-clauses exp) env))
+
+(define (eval-or-clauses clauses env)
+  (if (null? clauses)
+      'true                             ; Value for an empty OR expression
+      (let ((val (eval (car clauses) env)))
+        (if (true? val)
+            val
+            (if (singleton? clauses)
+                'false
+                (eval-or-clauses (cdr clauses) env))))))
+
+; Eval and apply
 
 (define eval-dispatch-table '())
 
@@ -211,3 +255,7 @@
         (else
          (error
           "Unknown procedure type -- APPLY" procedure))))
+
+(put-eval-dispatch 'and eval-and)
+
+(put-eval-dispatch 'or eval-or)
