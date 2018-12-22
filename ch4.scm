@@ -101,6 +101,9 @@
 
 (define (application? exp) (pair? exp))
 
+(define (make-application operator operands)
+  (cons operator operands))
+
 (define (operator exp) (car exp))
 
 (define (operands exp) (cdr exp))
@@ -184,6 +187,21 @@
                 'false
                 (eval-or-clauses (cdr clauses) env))))))
 
+;;; Let
+
+(define (let-definitions exp)
+  (cadr exp))
+
+(define (let-body exp)
+  (cddr exp))
+
+(define (let->combination exp)
+  (let ((parameters (map car (let-definitions exp)))
+        (arguments (map cadr (let-definitions exp))))
+    (make-application
+     (make-lambda parameters (let-body exp))
+     arguments)))
+
 ; Eval and apply
 
 (define eval-dispatch-table '())
@@ -259,3 +277,8 @@
 (put-eval-dispatch 'and eval-and)
 
 (put-eval-dispatch 'or eval-or)
+
+(put-eval-dispatch
+ 'let
+ (lambda (exp env)
+   (eval (let->combination exp) env)))
