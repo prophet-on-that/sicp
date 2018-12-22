@@ -189,6 +189,9 @@
 
 ;;; Let
 
+(define (make-let definitions body)
+  (cons 'let (cons definitions body)))
+
 (define (let-definitions exp)
   (cadr exp))
 
@@ -201,6 +204,24 @@
     (make-application
      (make-lambda parameters (let-body exp))
      arguments)))
+
+;;; Let*
+
+(define (let*-definitions exp)
+  (cadr exp))
+
+(define (let*-body exp)
+  (cddr exp))
+
+(define (let*->nested-lets exp)
+  (define (helper definitions)
+    (if (singleton? definitions)
+        (make-let definitions (let*-body exp))
+        (make-let (list (car definitions))
+                  (list (helper (cdr definitions))))))
+  (if (null? (let*-definitions exp))
+      (error "Invalid LET* form" exp)
+      (helper (let*-definitions exp))))
 
 ; Eval and apply
 
@@ -282,3 +303,8 @@
  'let
  (lambda (exp env)
    (eval (let->combination exp) env)))
+
+(put-eval-dispatch
+ 'let*
+ (lambda (exp env)
+   (eval (let*->nested-lets exp) env)))
