@@ -69,7 +69,7 @@
 (define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
-  (cons 'lambda (cons parameters body))) ; TODO: why is this CONS and not LIST?
+  (cons 'lambda (cons parameters body)))
 
 (define (if-predicate exp) (cadr exp))
 
