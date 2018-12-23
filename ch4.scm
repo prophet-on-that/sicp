@@ -192,18 +192,46 @@
 (define (make-let definitions body)
   (cons 'let (cons definitions body)))
 
-(define (let-definitions exp)
+(define (standard-let? exp)
+  (pair? (cadr exp)))
+
+(define (standard-let-definitions exp)
   (cadr exp))
 
-(define (let-body exp)
+(define (standard-let-body exp)
   (cddr exp))
 
+(define (named-let? exp)
+  (variable? (cadr exp)))
+
+(define (named-let-name exp)
+  (cadr exp))
+
+(define (named-let-definitions exp)
+  (caddr exp))
+
+(define (named-let-body exp)
+  (cdddr exp))
+
 (define (let->combination exp)
-  (let ((parameters (map car (let-definitions exp)))
-        (arguments (map cadr (let-definitions exp))))
-    (make-application
-     (make-lambda parameters (let-body exp))
-     arguments)))
+  (cond ((standard-let? exp)
+         (let ((parameters (map car (standard-let-definitions exp)))
+               (arguments (map cadr (standard-let-definitions exp))))
+           (make-application
+            (make-lambda parameters (standard-let-body exp))
+            arguments)))
+        ((named-let? exp)
+         (let ((parameters (map car (named-let-definitions exp)))
+               (arguments (map car (named-let-definitions exp))))
+           (make-let
+            (list (list (named-let-name exp)
+                        (make-lambda parameters (named-let-body exp))))
+            (list
+             (make-application
+              (named-let-name exp)
+              arguments)))))
+        (else
+         (error "Malformed let form -- LET->COMBINATION" exp))))
 
 ;;; Let*
 
