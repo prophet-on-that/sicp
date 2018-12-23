@@ -156,18 +156,17 @@
 (define (and-clauses exp)
   (cdr exp))
 
-(define (eval-and exp env)
-  (eval-and-clauses (and-clauses exp) env))
-
-(define (eval-and-clauses clauses env)
-  (if (null? clauses)
-      'true                  ; Value for an empty AND expression
-      (let ((val (eval (car clauses) env)))
-        (if (true? val)
-            (if (singleton? clauses)
-                val
-                (eval-and-clauses (cdr clauses) env ))
-            'false))))
+(define (and->if exp)
+  (define (helper clauses)
+    (if (singleton? clauses)
+        (car clauses)
+        (let ((var (gensym)))
+          (make-let
+           (list (list var (car clauses)))
+           (list (make-if var (helper (cdr clauses)) 'false))))))
+  (if (null? (and-clauses exp))
+      'true                             ; Value for an empty AND form
+      (helper (and-clauses exp))))
 
 ;;; Or
 
@@ -323,7 +322,10 @@
          (error
           "Unknown procedure type -- APPLY" procedure))))
 
-(put-eval-dispatch 'and eval-and)
+(put-eval-dispatch
+ 'and
+ (lambda (exp env)
+   (eval (and->if exp) env)))
 
 (put-eval-dispatch 'or eval-or)
 
