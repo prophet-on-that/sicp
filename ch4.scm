@@ -173,18 +173,19 @@
 (define (or-clauses exp)
   (cdr exp))
 
-(define (eval-or exp env)
-  (eval-or-clauses (or-clauses exp) env))
-
-(define (eval-or-clauses clauses env)
-  (if (null? clauses)
-      'true                             ; Value for an empty OR expression
-      (let ((val (eval (car clauses) env)))
-        (if (true? val)
-            val
-            (if (singleton? clauses)
-                'false
-                (eval-or-clauses (cdr clauses) env))))))
+(define (or->if exp)
+  (define (helper clauses)
+    (if (singleton? clauses)
+        (car clauses)
+        (let ((var (gensym)))
+          (make-let
+           (list (list var (car clauses)))
+           (list (make-if var
+                          var
+                          (helper (cdr clauses))))))))
+  (if (null? (or-clauses exp))
+      'true                             ; Value for an empty OR form
+      (helper (or-clauses exp))))
 
 ;;; Let
 
@@ -327,7 +328,10 @@
  (lambda (exp env)
    (eval (and->if exp) env)))
 
-(put-eval-dispatch 'or eval-or)
+(put-eval-dispatch
+ 'or
+ (lambda (exp env)
+   (eval (or->if exp) env)))
 
 (put-eval-dispatch
  'let
