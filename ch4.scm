@@ -134,6 +134,12 @@
 (define (cond->if exp)
   (expand-clauses (cond-clauses exp)))
 
+(define (functional-cond-clause? clause)
+  (eq? '=> (list-ref clause 1)))
+
+(define (functional-cond-action clause)
+  (list-ref clause 2))
+
 (define (expand-clauses clauses)
   (if (null? clauses)
       'false                            ; no else clause
@@ -143,9 +149,19 @@
             (if (null? rest)
                 (sequence->exp (cond-actions first))
                 (error "ELSE clause isn't last -- COND->IF" clauses))
-            (make-if (cond-predicate first)
-                     (sequence->exp (cond-actions first))
-                     (expand-clauses rest))))))
+            (if (functional-cond-clause? first)
+                (let ((var (gensym)))
+                  (make-let
+                   (list (list var (cond-predicate first)))
+                   (list
+                    (make-if var
+                             (make-application
+                              (functional-cond-action first)
+                              (list var))
+                             (expand-clauses rest)))))
+                (make-if (cond-predicate first)
+                         (sequence->exp (cond-actions first))
+                         (expand-clauses rest)))))))
 
 ;;; And
 
