@@ -272,6 +272,45 @@
       (error "Invalid LET* form" exp)
       (helper (let*-definitions exp))))
 
+;;; While
+
+;;; Usage: (while <cond> <body>)
+
+(define (while-cond exp)
+  (cadr exp))
+
+(define (while-body exp)
+  (cddr exp))
+
+(define (while->combination exp)
+  (let ((fn-name (gensym)))
+    (make-let '()
+              (list
+               (make-function-definition fn-name
+                                         '()
+                                         (list
+                                          (make-if (while-cond exp)
+                                                   (make-begin
+                                                    (append
+                                                     (while-body exp)
+                                                     (list
+                                                      (make-application fn-name '()))))
+                                                   #f)))
+               (make-application fn-name '())))))
+
+;; Quasiquote version of WHILE->COMBINATION. This version is much more
+;; readable, but duplicates syntax definitions of the interpreted
+;; language.
+;; (define (while->combination exp)
+;;   (let ((fn-name (gensym)))
+;;     `(let ()
+;;        (define (,fn-name)
+;;          (if ,(while-cond exp)
+;;              (begin
+;;                ,@(while-body exp)
+;;                (,fn-name))))
+;;        (,fn-name))))
+
 ;;; Eval and apply
 
 (define eval-dispatch-table '())
@@ -363,3 +402,8 @@
  'let*
  (lambda (exp env)
    (eval (let*->nested-lets exp) env)))
+
+(put-eval-dispatch
+ 'while
+ (lambda (exp env)
+   (eval (while->combination exp) env)))
