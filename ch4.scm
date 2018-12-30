@@ -53,6 +53,9 @@
 
 (define (assignment-value exp) (caddr exp))
 
+(define (make-function-definition name arguments body)
+  (cons 'define (cons (cons name arguments) body)))
+
 (define (definition-variable exp)
   (if (symbol? (cadr exp))
       (cadr exp)
@@ -237,15 +240,17 @@
             (make-lambda parameters (standard-let-body exp))
             arguments)))
         ((named-let? exp)
-         (let ((parameters (map car (named-let-definitions exp)))
-               (arguments (map car (named-let-definitions exp))))
-           (make-let
-            (list (list (named-let-name exp)
-                        (make-lambda parameters (named-let-body exp))))
-            (list
-             (make-application
-              (named-let-name exp)
-              arguments)))))
+         ;; Define the named function in a new frame and invoke it
+         ;; with the initial arguments. The implementation could be
+         ;; optimised by removing the LET to construct the new
+         ;; environment and adding a new frame directly.
+         (make-let '()
+                   (list
+                    (make-function-definition (named-let-name exp)
+                                              (map car (named-let-definitions exp))
+                                              (named-let-body exp))
+                    (make-application (named-let-name exp)
+                                      (map cadr (named-let-definitions exp))))))
         (else
          (error "Malformed let form -- LET->COMBINATION" exp))))
 
