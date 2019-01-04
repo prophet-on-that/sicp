@@ -1,5 +1,7 @@
 (define-module (sicp ch4 env))
 
+(use-modules ((srfi srfi-1)))
+
 (define (enclosing-environment env)
   (cdr env))
 
@@ -63,3 +65,17 @@
       (if (pair? binding)
           (set-cdr! binding val)
           (add-binding-to-frame! var val frame)))))
+
+;; Deletes the first occurrence of VAR in environment ENV. Throws an
+;; error if no occurrences are found.
+(define-public (undefine-variable! var env)
+  (define (undefine-from-frame! frame)
+    (let ((old-binding-count (length (frame-bindings frame)))
+          (new-bindings (alist-delete var (frame-bindings frame) eq?)))
+      (set-frame-bindings! frame new-bindings)
+      (< (length new-bindings) old-binding-count)))
+  (if (eq? env the-empty-environment)
+      (error "Cannot undefine unbound variable")
+      (let ((undefined? (undefine-from-frame! (first-frame env))))
+        (if (not undefined?)
+            (undefine-variable! var (enclosing-environment env))))))

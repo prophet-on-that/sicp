@@ -39,6 +39,12 @@
     env)
   'ok)
 
+(define (eval-undefinition exp env)
+  (undefine-variable!
+   (undefinition-variable exp)
+   env)
+  'ok)
+
 ;;; Syntax of expressions
 
 (define (self-evaluating? exp)
@@ -67,6 +73,9 @@
       (caddr exp)
       (make-lambda (cddr exp)           ; formal parameters
                    (cddr exp))))        ; body
+
+(define (undefinition-variable exp)
+  (cadr exp))
 
 (define (lambda-parameters exp) (cadr exp))
 
@@ -379,6 +388,8 @@
 (put-eval-dispatch 'set! eval-assignment)
 
 (put-eval-dispatch 'define eval-definition)
+
+(put-eval-dispatch 'undefine! eval-undefinition)
 
 (put-eval-dispatch 'if eval-if)
 

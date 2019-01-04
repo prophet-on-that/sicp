@@ -32,4 +32,15 @@
   (define-variable! 'a 4 env)
   (test-eqv "Lookup redefined variable" 4 (lookup-variable-value 'a env)))
 
+(let ((env (extend-environment (list 'a)
+                               (list 1)
+                               (extend-environment (list 'a)
+                                                   (list 2)
+                                                   the-empty-environment))))
+  (undefine-variable! 'a env)
+  (test-eqv "Lookup unshadowed variable after undefine" 2 (lookup-variable-value 'a env))
+  (undefine-variable! 'a env)
+  (test-error "Lookup unbound variable after undefine" (lookup-variable-value 'a env))
+  (test-error "Undefine unbound variable" (undefine-variable! 'a env)))
+
 (test-end "env-test")
