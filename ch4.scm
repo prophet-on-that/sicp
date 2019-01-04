@@ -12,7 +12,7 @@
       '()
       ;;; Reversing the order of the LET expressions here changes the
       ;;; order in which the arguments to the procedure are evaluated.
-      (let ((first (eval (first-operands exps) env)))
+      (let ((first (eval (first-operand exps) env)))
         (let ((rest (list-of-values (rest-operands exps) env)))
           (cons first rest)))))
 
@@ -33,7 +33,7 @@
   'ok)
 
 (define (eval-definition exp env)
-  (define-value!
+  (define-variable!
     (definition-variable exp)
     (eval (definition-value exp) env)
     env)
