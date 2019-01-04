@@ -28,6 +28,8 @@
   (test-eqv "Look up defined variable" 1 (lookup-variable-value 'a env))
   (set-variable-value! 'a 2 env)
   (test-eqv "Look up set variable" 2 (lookup-variable-value 'a env))
-  (test-error "Set undefined variable" (set-variable-value! 'b 3 env)))
+  (test-error "Set undefined variable" (set-variable-value! 'b 3 env))
+  (define-variable! 'a 4 env)
+  (test-eqv "Look up redefined variable" 4 (lookup-variable-value 'a env)))
 
 (test-end "env-test")
