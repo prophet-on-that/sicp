@@ -1,6 +1,7 @@
 (define-module (sicp ch4))
 
-(use-modules (srfi srfi-1))
+(use-modules (srfi srfi-1)
+             (sicp ch4 env))
 
 ;; Exercise 4.1: LIST-OF-VALUES could simply be rewritten using MAP,
 ;; but isn't done here to emphasise that the implementing language
@@ -310,6 +311,35 @@
 ;;                ,@(while-body exp)
 ;;                (,fn-name))))
 ;;        (,fn-name))))
+
+;;; Predicate testing
+
+(define (true? x)
+  (not (eq? x 'false)))
+
+(define (false? x)
+  (eq? x 'false))
+
+;;; Representing procedures
+
+(define (make-procedure parameters body env)
+  (list 'procedure parameters body env))
+
+(define (tagged-list? p symbol)
+  (and (pair? p)
+       (eq? (car p) symbol)))
+
+(define (compound-procedure? p)
+  (tagged-list? p 'procedure))
+
+(define (procedure-parameters p)
+  (cadr p))
+
+(define (procedure-body p)
+  (caddr p))
+
+(define (procedure-environment p)
+  (cadddr p))
 
 ;;; Eval and apply
 
