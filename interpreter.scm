@@ -4,7 +4,7 @@
              (sicp env))
 
 ;; Save underlying APPLY, as this is redefined
-(define apply-in-underlying-scheme apply)
+(define apply-in-underlying-scheme (@@ (guile-user) apply))
 
 ;; Exercise 4.1: LIST-OF-VALUES could simply be rewritten using MAP,
 ;; but isn't done here to emphasise that the implementing language
