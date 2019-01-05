@@ -1,4 +1,4 @@
-(define-module (sicp ch4 env))
+(define-module (sicp env))
 
 (use-modules ((srfi srfi-1)))
 

@@ -1,7 +1,7 @@
 (define-module (sicp interpreter))
 
 (use-modules (srfi srfi-1)
-             (sicp ch4 env))
+             (sicp env))
 
 ;; Save underlying APPLY, as this is redefined
 (define apply-in-underlying-scheme apply)

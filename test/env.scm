@@ -1,5 +1,5 @@
 (use-modules (srfi srfi-64)
-             (sicp ch4 env))
+             (sicp env))
 
 (test-begin "env-test")
 
