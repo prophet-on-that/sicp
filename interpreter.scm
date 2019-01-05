@@ -452,17 +452,18 @@
  (lambda (exp env)
    (eval (while->combination exp) env)))
 
-;; Environment
+;;; Environment
 
-(define (setup-environment)
+(define-public (setup-environment)
   (let ((initial-env
          (extend-environment (primitive-procedure-names)
                              (primitive-procedure-objects)
                              the-empty-environment)))
     (define-variable! 'true 'true initial-env)
-    (define-variable! 'false 'false initial-env)))
+    (define-variable! 'false 'false initial-env)
+    initial-env))
 
-;; Primitive procedures
+;;; Primitive procedures
 
 (define (primitive-procedure? proc)
   (tagged-list? proc 'primitive))
@@ -487,3 +488,13 @@
 
 (define (apply-primitive-procedure proc args)
   (apply-in-underlying-scheme (primitive-implementation proc) args))
+
+;;; Utils
+
+(define-public (user-print object)
+  (if (compound-procedure? object)
+      (display (list 'compound-procedure
+                     (procedure-parameters object)
+                     (procedure-body object)
+                     '<procedure-env>))
+      (display object)))
