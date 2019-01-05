@@ -1,7 +1,10 @@
-(define-module (sicp ch4))
+(define-module (sicp interpreter))
 
 (use-modules (srfi srfi-1)
              (sicp ch4 env))
+
+;; Save underlying APPLY, as this is redefined
+(define apply-in-underlying-scheme apply)
 
 ;; Exercise 4.1: LIST-OF-VALUES could simply be rewritten using MAP,
 ;; but isn't done here to emphasise that the implementing language
@@ -364,7 +367,7 @@
         (cdr pair)
         #f)))
 
-(define (eval exp env)
+(define-public (eval exp env)
   (cond ((self-evaluating? exp) exp)
         ((variable? exp)
          (lookup-variable-value exp env))
@@ -448,3 +451,39 @@
  'while
  (lambda (exp env)
    (eval (while->combination exp) env)))
+
+;; Environment
+
+(define (setup-environment)
+  (let ((initial-env
+         (extend-environment (primitive-procedure-names)
+                             (primitive-procedure-objects)
+                             the-empty-environment)))
+    (define-variable! 'true 'true initial-env)
+    (define-variable! 'false 'false initial-env)))
+
+;; Primitive procedures
+
+(define (primitive-procedure? proc)
+  (tagged-list? proc 'primitive))
+
+(define (primitive-implementation proc)
+  (cadr proc))
+
+(define primitive-procedures
+  (list (list 'car car)
+        (list 'cdr cdr)
+        (list 'cons cons)
+        (list 'null? null?)
+        (list 'list list)))
+
+(define (primitive-procedure-names)
+  (map car primitive-procedures))
+
+(define (primitive-procedure-objects)
+  (map (lambda (proc)
+         (list 'primitive (cadr proc)))
+       primitive-procedures))
+
+(define (apply-primitive-procedure proc args)
+  (apply-in-underlying-scheme (primitive-implementation proc) args))
