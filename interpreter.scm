@@ -74,7 +74,7 @@
 (define (definition-value exp)
   (if (symbol? (cadr exp))
       (caddr exp)
-      (make-lambda (cddr exp)           ; formal parameters
+      (make-lambda (cdadr exp)           ; formal parameters
                    (cddr exp))))        ; body
 
 (define (undefinition-variable exp)
