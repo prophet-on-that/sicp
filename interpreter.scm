@@ -475,7 +475,10 @@
   (list (list 'car car)
         (list 'cdr cdr)
         (list 'cons cons)
-        (list 'null? null?)
+        (list 'null? (lambda (list)
+                       (if (null? list)
+                           'true
+                           'false)))
         (list 'list list)))
 
 (define (primitive-procedure-names)
