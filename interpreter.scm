@@ -63,8 +63,14 @@
 
 (define (assignment-value exp) (caddr exp))
 
+(define (make-assignment var val)
+  (list 'set! var val))
+
 (define (make-function-definition name arguments body)
   (cons 'define (cons (cons name arguments) body)))
+
+(define (is-definition? exp)
+  (tagged-list? exp 'define))
 
 (define (definition-variable exp)
   (if (symbol? (cadr exp))
@@ -334,8 +340,24 @@
 
 ;;; Representing procedures
 
+(define (scan-out-defines body)
+  (let ((definition-variables (map definition-variable
+                                   (filter is-definition? body))))
+    (if (not (null? definition-variables))
+        (list
+         (make-let (map (lambda (var)
+                          (list var ''*unassigned*))
+                        definition-variables)
+                   (map (lambda (exp)
+                          (if (is-definition? exp)
+                              (make-assignment (definition-variable exp)
+                                               (definition-value exp))
+                              exp))
+                        body)))
+        body)))
+
 (define (make-procedure parameters body env)
-  (list 'procedure parameters body env))
+  (list 'procedure parameters (scan-out-defines body) env))
 
 (define (tagged-list? p symbol)
   (and (pair? p)

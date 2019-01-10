@@ -47,14 +47,17 @@
 
 (define (lookup-binding-in-env var env)
   (if (eq? env the-empty-environment)
-      (error "Unbound variable")
+      (error "Unbound variable" var)
       (let ((binding (lookup-binding-in-frame var (first-frame env))))
         (if (pair? binding)
             binding
             (lookup-binding-in-env var (enclosing-environment env))))))
 
 (define-public (lookup-variable-value var env)
-  (cdr (lookup-binding-in-env var env)))
+  (let ((val (cdr (lookup-binding-in-env var env))))
+    (if (eq? val '*unassigned*)
+        (error "Variable is unassigned" var)
+        val)))
 
 (define-public (set-variable-value! var val env)
   (set-cdr! (lookup-binding-in-env var env) val))
@@ -75,7 +78,7 @@
       (set-frame-bindings! frame new-bindings)
       (< (length new-bindings) old-binding-count)))
   (if (eq? env the-empty-environment)
-      (error "Cannot undefine unbound variable")
+      (error "Cannot undefine unbound variable" var)
       (let ((undefined? (undefine-from-frame! (first-frame env))))
         (if (not undefined?)
             (undefine-variable! var (enclosing-environment env))))))
