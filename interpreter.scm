@@ -501,7 +501,13 @@
                        (if (null? list)
                            'true
                            'false)))
-        (list 'list list)))
+        (list 'list list)
+        (list '= (lambda (m n)
+                   (if (= m n)
+                       'true
+                       'false)))
+        (list '+ +)
+        (list '- -)))
 
 (define (primitive-procedure-names)
   (map car primitive-procedures))
