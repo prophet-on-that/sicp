@@ -330,6 +330,24 @@
 ;;                (,fn-name))))
 ;;        (,fn-name))))
 
+;;; Letrec
+
+(define (letrec-bindings exp)
+  (cadr exp))
+
+(define (letrec-body exp)
+  (cddr exp))
+
+(define (letrec->combination exp)
+  (let ((definitions (map (lambda (binding)
+                            (list (car binding) ''*unassigned*))
+                          (letrec-bindings exp)))
+        (set-exps (map (lambda (binding)
+                         (make-assignment (car binding) (cadr binding)))
+                       (letrec-bindings exp))))
+    (make-let definitions
+              (append set-exps (letrec-body exp)))))
+
 ;;; Predicate testing
 
 (define (true? x)
@@ -473,6 +491,11 @@
  'while
  (lambda (exp env)
    (eval (while->combination exp) env)))
+
+(put-eval-dispatch
+ 'letrec
+ (lambda (exp env)
+   (eval (letrec->combination exp) env)))
 
 ;;; Environment
 
