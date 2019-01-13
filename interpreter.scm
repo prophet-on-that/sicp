@@ -493,6 +493,94 @@
  (lambda (exp env)
    (eval (letrec->combination exp) env)))
 
+;;; Eval with syntax analysis
+
+(define (eval-analyse exp env)
+  (analyse exp) env)
+
+(define analyse-dispatch-table (create-dispatch-table))
+
+(define (analyse exp)
+  (cond ((self-evaluating? exp)
+         (analyse-self-evaluating exp))
+        ((variable? exp)
+         (analyse-variable exp))
+        ((pair? exp)
+         (let ((dispatch-fn (dispatch-table-get analyse-dispatch-table (car exp))))
+           (cond (dispatch-fn
+                  (dispatch-fn exp env))
+                 ((application? exp)
+                  (analyse-application exp))
+                 (else
+                  (error "Unknown expression type -- ANALYSE" exp)))))
+        (else
+         (error "Unknown expression type -- ANALYSE" exp))))
+
+(define (analyse-self-evaluating exp)
+  (lambda (env) exp))
+
+(define (analyse-variable exp)
+  (lambda (env)
+    (lookup-variable-value exp env)))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'quote
+                     (lambda (exp)
+                       (let ((qval (text-of-quotation exp)))
+                         (lambda (env) qval))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'set!
+                     (lambda (exp)
+                       (let ((var (assignment-variable exp))
+                             (vproc (analyse (assignment-value exp))))
+                         (lambda (env)
+                           (set-variable-value! var (vproc env) env)
+                           'ok))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'define
+                     (lambda (exp)
+                       (let ((var (definition-variable exp))
+                             (vproc (analyse (definition-value exp))))
+                         (lambda (env)
+                           (define-variable! var (vproc env) env)))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'if
+                     (lambda (exp)
+                       (let ((pproc (analyse (if-predicate exp)))
+                             (cproc (analyse (if-consequent exp)))
+                             (aproc (analyse (if-alternative exp))))
+                         (lambda (env)
+                           (if (true? (pproc env))
+                               (cproc env)
+                               (aproc env))))))
+
+(define (analyse-sequence exps)
+  (define (sequentially proc1 proc2)
+    (lambda (env)
+      (proc1 env)
+      (proc2 env)))
+  ;; TODO: simplify with FOLDL
+  (define (loop first-proc rest-procs)
+    (if (null? rest-procs)
+        first-proc
+        (loop (sequentially first-proc (car rest-procs))
+              (cdr rest-procs))))
+  (let ((procs (map analyse exps)))
+    (if (null? procs)
+        (error "Empty sequence -- ANALYSE")
+        (loop (car procs) (cdr procs)))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'lambda
+                     (lambda (exp)
+                       (let ((vars (lambda-parameters exp))
+                             (bproc (analyse-sequence (lambda-body exp))))
+                         (lambda (env)
+                           (make-procedure vars bproc env)))))
+
 ;;; Environment
 
 (define-public (setup-environment)
