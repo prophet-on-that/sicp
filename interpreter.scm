@@ -1,7 +1,7 @@
 (define-module (sicp interpreter))
 
-(use-modules (srfi srfi-1)
-             (sicp env))
+(use-modules (sicp env)
+             (sicp dispatch-table))
 
 ;; Save underlying APPLY, as this is redefined
 (define apply-in-underlying-scheme (@@ (guile-user) apply))
@@ -395,17 +395,13 @@
 
 ;;; Eval and apply
 
-(define eval-dispatch-table '())
+(define eval-dispatch-table (create-dispatch-table))
 
 (define (put-eval-dispatch symbol fn)
-  (set! eval-dispatch-table
-        (alist-cons symbol fn eval-dispatch-table)))
+  (dispatch-table-put! eval-dispatch-table symbol fn))
 
-(define  (get-eval-dispatch symbol)
-  (let ((pair (assoc symbol eval-dispatch-table)))
-    (if pair
-        (cdr pair)
-        #f)))
+(define (get-eval-dispatch symbol)
+  (dispatch-table-get eval-dispatch-table symbol))
 
 (define-public (eval exp env)
   (cond ((self-evaluating? exp) exp)
