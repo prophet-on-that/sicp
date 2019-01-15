@@ -375,7 +375,8 @@
         body)))
 
 (define (make-procedure parameters body env)
-  (list 'procedure parameters (scan-out-defines body) env))
+  ;; (list 'procedure parameters (scan-out-defines body) env)
+  (list 'procedure parameters body env))
 
 (define (tagged-list? p symbol)
   (and (pair? p)
@@ -496,7 +497,7 @@
 ;;; Eval with syntax analysis
 
 (define (eval-analyse exp env)
-  (analyse exp) env)
+  ((analyse exp) env))
 
 (define analyse-dispatch-table (create-dispatch-table))
 
@@ -508,7 +509,7 @@
         ((pair? exp)
          (let ((dispatch-fn (dispatch-table-get analyse-dispatch-table (car exp))))
            (cond (dispatch-fn
-                  (dispatch-fn exp env))
+                  (dispatch-fn exp))
                  ((application? exp)
                   (analyse-application exp))
                  (else
@@ -580,6 +581,25 @@
                              (bproc (analyse-sequence (lambda-body exp))))
                          (lambda (env)
                            (make-procedure vars bproc env)))))
+
+(define (analyse-application exp)
+  (let ((fproc (analyse (operator exp)))
+        (aprocs (map analyse (operands exp))))
+    (lambda (env)
+      (execute-application (fproc env)
+                           (map (lambda (aproc) (aproc env))
+                                aprocs)))))
+
+(define (execute-application proc args)
+  (cond ((primitive-procedure? proc)
+         (apply-primitive-procedure proc args))
+        ((compound-procedure? proc)
+         ((procedure-body proc)
+          (extend-environment (procedure-parameters proc)
+                              args
+                              (procedure-environment proc))))
+        (else
+         (error "Unknown procedure type -- EXECUTE-APPLICATION" proc))))
 
 ;;; Environment
 
