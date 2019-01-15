@@ -601,6 +601,11 @@
         (else
          (error "Unknown procedure type -- EXECUTE-APPLICATION" proc))))
 
+(dispatch-table-put! analyse-dispatch-table
+                     'let
+                     (lambda (exp)
+                       (analyse (let->combination exp))))
+
 ;;; Environment
 
 (define-public (setup-environment)
