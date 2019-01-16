@@ -348,6 +348,22 @@
     (make-let definitions
               (append set-exps (letrec-body exp)))))
 
+;;; Unless
+
+(define (unless-predicate exp)
+  (cadr exp))
+
+(define (unless-alternative exp)
+  (caddr exp))
+
+(define (unless-consequent exp)
+  (cadddr exp))
+
+(define (unless->if exp)
+  (make-if (unless-predicate exp)
+           (unless-consequent exp)
+           (unless-alternative exp)))
+
 ;;; Predicate testing
 
 (define (true? x)
@@ -610,6 +626,11 @@
                      'begin
                      (lambda (exp)
                        (analyse-sequence (begin-actions exp))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'unless
+                     (lambda (exp)
+                       (analyse (unless->if exp))))
 
 ;;; Environment
 
