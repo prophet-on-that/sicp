@@ -606,6 +606,11 @@
                      (lambda (exp)
                        (analyse (let->combination exp))))
 
+(dispatch-table-put! analyse-dispatch-table
+                     'begin
+                     (lambda (exp)
+                       (analyse-sequence (begin-actions exp))))
+
 ;;; Environment
 
 (define-public (setup-environment)
