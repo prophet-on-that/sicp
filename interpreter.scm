@@ -644,7 +644,8 @@
                        'true
                        'false)))
         (list '+ +)
-        (list '- -)))
+        (list '- -)
+        (list '* *)))
 
 (define (primitive-procedure-names)
   (map car primitive-procedures))
