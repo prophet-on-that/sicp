@@ -20,7 +20,7 @@
           (cons first rest)))))
 
 (define (eval-if exp env)
-  (if (true? (eval (if-predicate exp) env))
+  (if (true? (actual-value (if-predicate exp) env))
       (eval (if-consequent exp) env)
       (eval (if-alternative exp) env)))
 
@@ -429,8 +429,9 @@
            (cond (dispatch-fn
                   (dispatch-fn exp env))
                  ((application? exp)
-                  (apply (eval (operator exp) env)
-                         (list-of-values (operands exp) env)))
+                  (apply (actual-value (operator exp) env)
+                         (operands exp)
+                         env))
                  (else
                   (error "Unknown expression type -- EVAL" exp)))))
         (else
@@ -466,15 +467,21 @@
  (lambda (exp env)
    (eval (cond->if exp) env)))
 
-(define (apply procedure arguments)
+(define (apply procedure arguments env)
   (cond ((primitive-procedure? procedure)
-         (apply-primitive-procedure procedure arguments))
+         (apply-primitive-procedure
+          procedure
+          (map (lambda (arg)
+                 (actual-value arg env))
+               arguments)))
         ((compound-procedure? procedure)
          (eval-sequence
           (procedure-body procedure)
           (extend-environment
            (procedure-parameters procedure)
-           arguments
+           (map (lambda (arg)
+                  (delay-it arg env))
+                arguments)
            (procedure-environment procedure))))
         (else
          (error
@@ -688,3 +695,39 @@
                      (procedure-body object)
                      '<procedure-env>))
       (display object)))
+
+;; Lazy
+
+(define-public (actual-value exp env)
+  (force-it (eval exp env)))
+
+(define (force-it obj)
+  (cond ((thunk? obj)
+         (let ((result (actual-value
+                        (thunk-exp obj)
+                        (thunk-env obj))))
+           (set-car! obj 'evaluated-thunk)
+           (set-car! (cdr obj) result)  ; replace exp with its value
+           (set-cdr! (cdr obj) '())     ; forget unneeded env
+           result))
+        ((evaluated-thunk? obj)
+         (thunk-value obj))
+        (else obj)))
+
+(define (delay-it exp env)
+  (list 'thunk exp env))
+
+(define (thunk? obj)
+  (tagged-list? obj 'thunk))
+
+(define (thunk-exp thunk)
+  (cadr thunk))
+
+(define (thunk-env thunk)
+  (caddr thunk))
+
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+
+(define (thunk-value evaluated-thunk)
+  (cadr evaluated-thunk))
