@@ -1,7 +1,10 @@
 (define-module (sicp interpreter))
 
-(use-modules (sicp env)
-             (sicp dispatch-table))
+(use-modules (sicp utils)
+             (sicp env)
+             (sicp dispatch-table)
+             (sicp thunk)
+             (srfi srfi-1))
 
 ;; Save underlying APPLY, as this is redefined
 (define apply-in-underlying-scheme (@@ (guile-user) apply))
@@ -713,21 +716,3 @@
         ((evaluated-thunk? obj)
          (thunk-value obj))
         (else obj)))
-
-(define (delay-it exp env)
-  (list 'thunk exp env))
-
-(define (thunk? obj)
-  (tagged-list? obj 'thunk))
-
-(define (thunk-exp thunk)
-  (cadr thunk))
-
-(define (thunk-env thunk)
-  (caddr thunk))
-
-(define (evaluated-thunk? obj)
-  (tagged-list? obj 'evaluated-thunk))
-
-(define (thunk-value evaluated-thunk)
-  (cadr evaluated-thunk))
