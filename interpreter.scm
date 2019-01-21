@@ -89,7 +89,30 @@
 (define (undefinition-variable exp)
   (cadr exp))
 
-(define (lambda-parameters exp) (cadr exp))
+(define (make-lambda-parameter variable evaluation-type)
+  (cons variable evaluation-type))
+
+(define (lambda-parameter-variable param)
+  (car param))
+
+(define (lambda-parameter-evaluation-type param)
+  (cdr param))
+
+(define evaluation-types (list 'strict 'lazy 'lazy-memo))
+
+(define (parse-lambda-parameter param)
+  (cond ((variable? param)
+         (make-lambda-parameter param 'strict))
+        ((and (pair? param)
+              (= 2 (length param)))
+         (if (member (cadr param) evaluation-types)
+             (make-lambda-parameter (car param) (cadr param))
+             (error "Unrecognised evaluation type - PARSE-LAMBDA-PARAMETER" (cadr param))))
+        (else
+         (error "Unrecognised lambda parameter form - PARSE-LAMBDA-PARAMETER" param))))
+
+(define (lambda-parameters exp)
+  (map parse-lambda-parameter (cadr exp)))
 
 (define (lambda-body exp) (cddr exp))
 
@@ -397,10 +420,6 @@
   ;; (list 'procedure parameters (scan-out-defines body) env)
   (list 'procedure parameters body env))
 
-(define (tagged-list? p symbol)
-  (and (pair? p)
-       (eq? (car p) symbol)))
-
 (define (compound-procedure? p)
   (tagged-list? p 'procedure))
 
@@ -481,9 +500,15 @@
          (eval-sequence
           (procedure-body procedure)
           (extend-environment
-           (procedure-parameters procedure)
-           (map (lambda (arg)
-                  (delay-it arg env))
+           (map lambda-parameter-variable (procedure-parameters procedure))
+           (map (lambda (param arg)
+                  (cond ((eq? 'strict (lambda-parameter-evaluation-type param))
+                         (actual-value arg env))
+                        ((eq? 'lazy-memo (lambda-parameter-evaluation-type param))
+                         (delay-it arg env))
+                        (else
+                         (error "Unsupported evaluation type -- APPLY" (lambda-parameter-evaluation-type param)))))
+                (procedure-parameters procedure)
                 arguments)
            (procedure-environment procedure))))
         (else
@@ -621,7 +646,7 @@
          (apply-primitive-procedure proc args))
         ((compound-procedure? proc)
          ((procedure-body proc)
-          (extend-environment (procedure-parameters proc)
+          (extend-environment (map lambda-parameter-variable (procedure-parameters proc))
                               args
                               (procedure-environment proc))))
         (else
