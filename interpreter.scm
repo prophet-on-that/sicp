@@ -746,3 +746,14 @@
         ((evaluated-thunk? obj)
          (thunk-value obj))
         (else obj)))
+
+;;; Execise 4.28
+
+;; The following code illustrates why EVAL needs to force the operator
+;; of an application before passing it to APPLY. This is the case
+;; where the operator is a thunk.
+
+;; (define (identity x)
+;;   x)
+;; (define f cons)
+;; (f 1 2)
