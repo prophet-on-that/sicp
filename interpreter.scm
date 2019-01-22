@@ -506,6 +506,8 @@
                          (actual-value arg env))
                         ((eq? 'lazy-memo (lambda-parameter-evaluation-type param))
                          (delay-it arg env))
+                        ((eq? 'lazy (lambda-parameter-evaluation-type param))
+                         (delay-it arg env #:memo #f))
                         (else
                          (error "Unsupported evaluation type -- APPLY" (lambda-parameter-evaluation-type param)))))
                 (procedure-parameters procedure)
@@ -735,9 +737,11 @@
          (let ((result (actual-value
                         (thunk-exp obj)
                         (thunk-env obj))))
-           (set-car! obj 'evaluated-thunk)
-           (set-car! (cdr obj) result)  ; replace exp with its value
-           (set-cdr! (cdr obj) '())     ; forget unneeded env
+           (if (thunk-memo obj)
+               (begin
+                 (set-car! obj 'evaluated-thunk)
+                 (set-car! (cdr obj) result) ; replace exp with its value
+                 (set-cdr! (cdr obj) '())))     ; forget unneeded env
            result))
         ((evaluated-thunk? obj)
          (thunk-value obj))
