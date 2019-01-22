@@ -21,6 +21,5 @@
 (define-public (evaluated-thunk? obj)
   (tagged-list? obj 'evaluated-thunk))
 
-(define-public (thunk-value
-                evaluated-thunk)
+(define-public (thunk-value evaluated-thunk)
   (cadr evaluated-thunk))
