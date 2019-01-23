@@ -102,7 +102,7 @@
 
 (define (parse-lambda-parameter param)
   (cond ((variable? param)
-         (make-lambda-parameter param 'strict))
+         (make-lambda-parameter param 'lazy-memo))
         ((and (pair? param)
               (= 2 (length param)))
          (if (member (cadr param) evaluation-types)
@@ -689,14 +689,10 @@
   (cadr proc))
 
 (define primitive-procedures
-  (list (list 'car car)
-        (list 'cdr cdr)
-        (list 'cons cons)
-        (list 'null? (lambda (list)
-                       (if (null? list)
-                           'true
-                           'false)))
-        (list 'list list)
+  (list (list 'eq? (lambda (m n)
+                    (if (eq? m n)
+                        'true
+                        'false)))
         (list '= (lambda (m n)
                    (if (= m n)
                        'true

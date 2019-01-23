@@ -26,3 +26,20 @@
   (newline))
 
 (define the-global-environment (setup-environment))
+
+;; Global definitions
+(map (lambda (form)
+       (eval form the-global-environment))
+     '((define (cons x y)
+         (lambda (z) (z x y)))
+       (define (car c)
+         (c (lambda (x y) x)))
+       (define (cdr c)
+         (c (lambda (x y) y)))
+       (define (null? l)
+         (eq? l '()))
+       (define (length l)
+         (if (null? l)
+             0
+             (+ 1 (length (cdr l)))))))
+
