@@ -462,7 +462,12 @@
 (put-eval-dispatch
  'quote
  (lambda (exp env)
-   (text-of-quotation exp)))
+   (let ((text (text-of-quotation exp)))
+     (if (pair? text)
+         (eval `(cons (quote ,(car text))
+                      ,(native-list->list (cdr text)))
+               env)
+         text))))
 
 (put-eval-dispatch 'set! eval-assignment)
 
