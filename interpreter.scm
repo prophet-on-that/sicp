@@ -418,7 +418,7 @@
 
 (define (make-procedure parameters body env)
   ;; (list 'procedure parameters (scan-out-defines body) env)
-  (list 'procedure parameters body env '()))
+  (list 'procedure parameters body env))
 
 (define (compound-procedure? p)
   (tagged-list? p 'procedure))
@@ -431,12 +431,6 @@
 
 (define (procedure-environment p)
   (cadddr p))
-
-(define (procedure-tags p)
-  (list-ref p 4))
-
-(define (set-procedure-tags! p tags)
-  (set-car! (cddddr p) tags))
 
 ;;; Eval and apply
 
@@ -557,16 +551,6 @@
  'letrec
  (lambda (exp env)
    (eval (letrec->combination exp) env)))
-
-(put-eval-dispatch
- 'set-compound-procedure-tags!
- (lambda (exp env)
-   (let ((p (actual-value (cadr exp) env)))
-     (if (compound-procedure? p)
-         (begin
-           (set-procedure-tags! p (caddr exp))
-           'ok)
-         (error "Expression does not evaluate to a procedure" (cadr exp))))))
 
 ;;; Eval with syntax analysis
 
@@ -738,13 +722,10 @@
 
 (define-public (user-print object)
   (if (compound-procedure? object)
-      (if (member 'cons (procedure-tags object))
-          (display 'cons)
-          (display (list 'compound-procedure
-                      (procedure-parameters object)
-                      (procedure-body object)
-                      '<procedure-env>
-                      (procedure-tags object))))
+      (display (list 'compound-procedure
+                     (procedure-parameters object)
+                     (procedure-body object)
+                     '<procedure-env>))
       (display object)))
 
 ;; Lazy
