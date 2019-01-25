@@ -51,6 +51,39 @@
    env)
   'ok)
 
+;;; Cons
+
+(define (make-cons-cell a b)
+  (list 'cons-cell a b))
+
+(define (cons-cell-car c)
+  (cadr c))
+
+(define (cons-cell-cdr c)
+  (caddr c))
+
+(define (cons-exp-car exp)
+  (cadr exp))
+
+(define (cons-exp-cdr exp)
+  (caddr exp))
+
+(define (eval-cons exp env)
+  (make-cons-cell (delay-it (cons-exp-car exp) env)
+                  (delay-it (cons-exp-cdr exp) env)))
+
+(define (eval-car exp env)
+  (let ((c (actual-value (cadr exp) env)))
+    (if (tagged-list? c 'cons-cell)
+        (cons-cell-car c)
+        (error "Not a cons cell -- EVAL-CAR" (cadr exp)))))
+
+(define (eval-cdr exp env)
+  (let ((c (actual-value (cadr exp) env)))
+    (if (tagged-list? c 'cons-cell)
+        (cons-cell-cdr c)
+        (error "Not a cons cell -- EVAL-CDR" (cadr exp)))))
+
 ;;; Syntax of expressions
 
 (define (self-evaluating? exp)
@@ -551,6 +584,10 @@
  'letrec
  (lambda (exp env)
    (eval (letrec->combination exp) env)))
+
+(put-eval-dispatch 'cons eval-cons)
+(put-eval-dispatch 'car eval-car)
+(put-eval-dispatch 'cdr eval-cdr)
 
 ;;; Eval with syntax analysis
 
