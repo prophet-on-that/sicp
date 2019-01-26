@@ -28,3 +28,13 @@
   (newline))
 
 (define the-global-environment (setup-environment))
+
+(map (lambda (exp)
+       (eval exp the-global-environment))
+     '((define (null? l)
+         (eq? l '()))
+       (define (length l)
+         (if (null? l)
+             0
+             (+ 1 (length (cdr l)))))))
+
