@@ -761,24 +761,28 @@
 
 ;;; Utils
 
-(define* (user-render obj #:key (force? #f))
-  (define (helper obj)
-    (cond ((thunk? obj)
+(define-public user-render-default-max-depth 10)
+
+(define* (user-render obj #:key (force? #f) (max-depth user-render-default-max-depth))
+  (define (helper obj depth)
+    (cond ((> depth max-depth)
+           '...)
+          ((thunk? obj)
            (if force?
-               (helper (force-it obj))
+               (helper (force-it obj) depth)
                '<thunk>))
           ((evaluated-thunk? obj)
-           (helper (thunk-value obj)))
+           (helper (thunk-value obj) depth))
           ((cons-cell? obj)
-           (cons (helper (cons-cell-car obj))
-                 (helper (cons-cell-cdr obj))))
+           (cons (helper (cons-cell-car obj) 0)
+                 (helper (cons-cell-cdr obj) (+ depth 1))))
           ((compound-procedure? obj)
            (list 'compound-procedure
                  (procedure-parameters obj)
                  (procedure-body obj)
                  '<procedure-env>))
           (else obj)))
-  (helper obj))
+  (helper obj 0))
 
 ;; Lazy
 
