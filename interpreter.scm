@@ -496,15 +496,16 @@
         (else
          (error "Unknown expression type -- EVAL" exp))))
 
+(define (native-list->list exp)
+  (if (pair? exp)
+      (make-cons-cell (native-list->list (car exp))
+                      (native-list->list (cdr exp)))
+      exp))
+
 (put-eval-dispatch
  'quote
  (lambda (exp env)
-   (let ((text (text-of-quotation exp)))
-     (if (pair? text)
-         (eval `(cons (quote ,(car text))
-                      ,(native-list->list (cdr text)))
-               env)
-         text))))
+   (native-list->list (text-of-quotation exp))))
 
 (put-eval-dispatch 'set! eval-assignment)
 
