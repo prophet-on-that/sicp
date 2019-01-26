@@ -1,4 +1,5 @@
-(define-module (sicp interpreter))
+(define-module (sicp interpreter)
+  #:export (user-render))
 
 (use-modules (sicp utils)
              (sicp env)
@@ -760,30 +761,24 @@
 
 ;;; Utils
 
-(define-public (render-raw obj)
-  (cond ((thunk? obj)
-         ;; (list 'thunk (thunk-exp obj) '<thunk-env>)
-         '<thunk>
-         )
-        ((evaluated-thunk? obj)
-         (render-raw (thunk-value obj)))
-        ((cons-cell? obj)
-         (cons (render-raw (cons-cell-car obj))
-               (render-raw (cons-cell-cdr obj))))
-        ((compound-procedure? obj)
-         (list 'compound-procedure
-               (procedure-parameters obj)
-               (procedure-body obj)
-               '<procedure-env>))
-        (else obj)))
-
-(define-public (user-print object)
-  (if (compound-procedure? object)
-      (display (list 'compound-procedure
-                     (procedure-parameters object)
-                     (procedure-body object)
-                     '<procedure-env>))
-      (display object)))
+(define* (user-render obj #:key (force? #f))
+  (define (helper obj)
+    (cond ((thunk? obj)
+           (if force?
+               (helper (force-it obj))
+               '<thunk>))
+          ((evaluated-thunk? obj)
+           (helper (thunk-value obj)))
+          ((cons-cell? obj)
+           (cons (helper (cons-cell-car obj))
+                 (helper (cons-cell-cdr obj))))
+          ((compound-procedure? obj)
+           (list 'compound-procedure
+                 (procedure-parameters obj)
+                 (procedure-body obj)
+                 '<procedure-env>))
+          (else obj)))
+  (helper obj))
 
 ;; Lazy
 

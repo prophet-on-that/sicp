@@ -6,15 +6,13 @@
 
 (define output-prompt ";;; L-Eval value:")
 
-(define* (driver-loop #:key (eval-print? #t))
+(define* (driver-loop #:key (force-print? #t))
   (define (helper)
     (prompt-for-input input-prompt)
     (let ((input (read)))
       (let ((output (actual-value input the-global-environment)))
         (announce-output output-prompt)
-        (if eval-print?
-            (user-print output)
-            (display (render-raw output)))))
+        (display (user-render output #:force? force-print?))))
     (helper))
   (helper))
 
