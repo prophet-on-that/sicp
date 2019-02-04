@@ -81,3 +81,16 @@
                    (and (eq? gabrielle-father 'downing)
                         (eq? downing-daughter 'gabrielle))))
       (list parker-daughter hall-daughter downing-daughter))))
+
+;;; Exercise 4.44
+
+;; This implemenetation uses SAFE? from ex. 2.42
+(define (queens)
+  (define (helper columns)
+    (let ((pos (amb 1 2 3 4 5 6 7 8)))
+      (let ((new-columns (cons pos columns)))
+        (require (safe? new-columns))
+       (if (= (length new-columns) 8)
+           new-columns
+           (helper new-columns)))))
+  (helper '()))
