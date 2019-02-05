@@ -1,4 +1,5 @@
-(define-module (sicp interpreter))
+(define-module (sicp interpreter)
+  #:export (user-render))
 
 (use-modules (sicp utils)
              (sicp env)
@@ -495,15 +496,16 @@
         (else
          (error "Unknown expression type -- EVAL" exp))))
 
+(define (native-list->list exp)
+  (if (pair? exp)
+      (make-cons-cell (native-list->list (car exp))
+                      (native-list->list (cdr exp)))
+      exp))
+
 (put-eval-dispatch
  'quote
  (lambda (exp env)
-   (let ((text (text-of-quotation exp)))
-     (if (pair? text)
-         (eval `(cons (quote ,(car text))
-                      ,(native-list->list (cdr text)))
-               env)
-         text))))
+   (native-list->list (text-of-quotation exp))))
 
 (put-eval-dispatch 'set! eval-assignment)
 
@@ -760,30 +762,28 @@
 
 ;;; Utils
 
-(define-public (render-raw obj)
-  (cond ((thunk? obj)
-         ;; (list 'thunk (thunk-exp obj) '<thunk-env>)
-         '<thunk>
-         )
-        ((evaluated-thunk? obj)
-         (render-raw (thunk-value obj)))
-        ((cons-cell? obj)
-         (cons (render-raw (cons-cell-car obj))
-               (render-raw (cons-cell-cdr obj))))
-        ((compound-procedure? obj)
-         (list 'compound-procedure
-               (procedure-parameters obj)
-               (procedure-body obj)
-               '<procedure-env>))
-        (else obj)))
+(define-public user-render-default-max-depth 10)
 
-(define-public (user-print object)
-  (if (compound-procedure? object)
-      (display (list 'compound-procedure
-                     (procedure-parameters object)
-                     (procedure-body object)
-                     '<procedure-env>))
-      (display object)))
+(define* (user-render obj #:key (force? #f) (max-depth user-render-default-max-depth))
+  (define (helper obj depth)
+    (cond ((> depth max-depth)
+           '...)
+          ((thunk? obj)
+           (if force?
+               (helper (force-it obj) depth)
+               '<thunk>))
+          ((evaluated-thunk? obj)
+           (helper (thunk-value obj) depth))
+          ((cons-cell? obj)
+           (cons (helper (cons-cell-car obj) 0)
+                 (helper (cons-cell-cdr obj) (+ depth 1))))
+          ((compound-procedure? obj)
+           (list 'compound-procedure
+                 (procedure-parameters obj)
+                 (procedure-body obj)
+                 '<procedure-env>))
+          (else obj)))
+  (helper obj 0))
 
 ;; Lazy
 
