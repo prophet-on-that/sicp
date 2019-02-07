@@ -322,6 +322,9 @@
            (unless-consequent exp)
            (unless-alternative exp)))
 
+(define (amb-choices exp)
+  (cdr exp))
+
 ;;; Predicate testing
 
 (define (true? x)
@@ -368,8 +371,8 @@
 (define (procedure-environment p)
   (cadddr p))
 
-(define-public (eval-analyse exp env)
-  ((analyse exp) env))
+(define-public (ambeval exp env succeed fail)
+  ((analyse exp) env succeed fail))
 
 (define analyse-dispatch-table (create-dispatch-table))
 
@@ -390,34 +393,49 @@
          (error "Unknown expression type -- ANALYSE" exp))))
 
 (define (analyse-self-evaluating exp)
-  (lambda (env) exp))
+  (lambda (env succeed fail)
+    (succeed exp fail)))
 
 (define (analyse-variable exp)
-  (lambda (env)
-    (lookup-variable-value exp env)))
+  (lambda (env succeed fail)
+    (succeed (lookup-variable-value exp env)
+             fail)))
 
 (dispatch-table-put! analyse-dispatch-table
                      'quote
                      (lambda (exp)
                        (let ((qval (text-of-quotation exp)))
-                         (lambda (env) qval))))
+                         (lambda (env succeed fail)
+                           (succeed qval fail)))))
 
 (dispatch-table-put! analyse-dispatch-table
                      'set!
                      (lambda (exp)
                        (let ((var (assignment-variable exp))
                              (vproc (analyse (assignment-value exp))))
-                         (lambda (env)
-                           (set-variable-value! var (vproc env) env)
-                           'ok))))
+                         (lambda (env succeed fail)
+                           (vproc env
+                                  (lambda (val fail2)
+                                    (let ((old-value
+                                           (lookup-variable-value var env)))
+                                      (set-variable-value! var val env)
+                                      (succeed 'ok
+                                               (lambda ()
+                                                 (set-variable-value! var old-value env)
+                                                 (fail2)))))
+                                  fail)))))
 
 (dispatch-table-put! analyse-dispatch-table
                      'define
                      (lambda (exp)
                        (let ((var (definition-variable exp))
                              (vproc (analyse (definition-value exp))))
-                         (lambda (env)
-                           (define-variable! var (vproc env) env)))))
+                         (lambda (env succeed fail)
+                           (vproc env
+                                  (lambda (val fail2)
+                                    (define-variable! var val env)
+                                    (succeed 'ok fail2))
+                                  fail)))))
 
 (dispatch-table-put! analyse-dispatch-table
                      'if
@@ -425,16 +443,21 @@
                        (let ((pproc (analyse (if-predicate exp)))
                              (cproc (analyse (if-consequent exp)))
                              (aproc (analyse (if-alternative exp))))
-                         (lambda (env)
-                           (if (true? (pproc env))
-                               (cproc env)
-                               (aproc env))))))
+                         (lambda (env succeed fail)
+                           (pproc env
+                                  (lambda (pred-value fail2)
+                                    (if (true? pred-value)
+                                        (cproc env succeed fail2)
+                                        (aproc env succeed fail2)))
+                                  fail)))))
 
 (define (analyse-sequence exps)
-  (define (sequentially proc1 proc2)
-    (lambda (env)
-      (proc1 env)
-      (proc2 env)))
+  (define (sequentially a b)
+    (lambda (env succeed fail)
+      (a env
+         (lambda (a-value fail2)
+           (b env succeed fail2))
+         fail)))
   ;; TODO: simplify with FOLDL
   (define (loop first-proc rest-procs)
     (if (null? rest-procs)
@@ -451,25 +474,47 @@
                      (lambda (exp)
                        (let ((vars (lambda-parameters exp))
                              (bproc (analyse-sequence (lambda-body exp))))
-                         (lambda (env)
-                           (make-procedure vars bproc env)))))
+                         (lambda (env succeed fail)
+                           (succeed (make-procedure vars bproc env)
+                                    fail)))))
 
 (define (analyse-application exp)
   (let ((fproc (analyse (operator exp)))
         (aprocs (map analyse (operands exp))))
-    (lambda (env)
-      (execute-application (fproc env)
-                           (map (lambda (aproc) (aproc env))
-                                aprocs)))))
+    (lambda (env succeed fail)
+      (fproc env
+             (lambda (proc fail2)
+               (get-args aprocs
+                         env
+                         (lambda (args fail3)
+                           (execute-application proc args succeed fail3))
+                         fail2))
+             fail))))
 
-(define (execute-application proc args)
+(define (get-args aprocs env succeed fail)
+  (if (null? aprocs)
+      (succeed '() fail)
+      ((car aprocs) env
+       (lambda (arg fail2)
+         (get-args (cdr aprocs)
+                   env
+                   (lambda (args fail3)
+                     (succeed (cons arg args)
+                              fail3))
+                   fail2))
+       fail)))
+
+(define (execute-application proc args succeed fail)
   (cond ((primitive-procedure? proc)
-         (apply-primitive-procedure proc args))
+         (succeed (apply-primitive-procedure proc args)
+                  fail))
         ((compound-procedure? proc)
          ((procedure-body proc)
           (extend-environment (procedure-parameters proc)
                               args
-                              (procedure-environment proc))))
+                              (procedure-environment proc))
+          succeed
+          fail))
         (else
          (error "Unknown procedure type -- EXECUTE-APPLICATION" proc))))
 
@@ -487,6 +532,20 @@
                      'unless
                      (lambda (exp)
                        (analyse (unless->if exp))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'amb
+                     (lambda (exp)
+                       (let ((cprocs (map analyse (amb-choices exp))))
+                         (lambda (env succeed fail)
+                           (define (try-next choices)
+                             (if (null? choices)
+                                 (fail)
+                                 ((car choices) env
+                                  succeed
+                                  (lambda ()
+                                    (try-next (cdr choices))))))
+                           (try-next cprocs)))))
 
 ;;; Environment
 
@@ -522,7 +581,20 @@
                        'false)))
         (list '+ +)
         (list '- -)
-        (list '* *)))
+        (list '* *)
+        (list '>= (lambda (m n)
+                    (if (>= m n)
+                        'true
+                        'false)))
+        (list '> (lambda (m n)
+                   (if (> m n)
+                       'true
+                       'false)))
+        (list 'eq? (lambda (m n)
+                     (if (eq? m n)
+                         'true
+                         'false)))
+        (list 'abs abs)))
 
 (define (primitive-procedure-names)
   (map car primitive-procedures))
