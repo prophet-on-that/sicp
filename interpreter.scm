@@ -1,7 +1,8 @@
 (define-module (sicp interpreter))
 
 (use-modules (sicp env)
-             (sicp dispatch-table))
+             (sicp dispatch-table)
+             (srfi srfi-1))
 
 ;; Save underlying APPLY, as this is redefined
 (define apply-in-underlying-scheme (@@ (guile-user) apply))
@@ -593,7 +594,9 @@
         (binary-predicate >=)
         (binary-predicate >)
         (binary-predicate eq?)
-        (list 'abs abs)))
+        (list 'abs abs)
+        (list 'lset-difference-= (lambda (m n)
+                                   (lset-difference = m n)))))
 
 (define (primitive-procedure-names)
   (map car primitive-procedures))

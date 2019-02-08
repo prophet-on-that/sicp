@@ -60,4 +60,32 @@
                   'false))
             (define (require val)
               (if (not val)
-                  (amb)))))
+                  (amb)))
+            (define (amb-element-of items)
+              (require (not (null? items)))
+              (amb (car items)
+                   (amb-element-of (cdr items))))))
+
+;;; Exercise 4.40
+
+;; (let ((floors (list 1 2 3 4 5)))
+;;   (let ((fletcher (amb-element-of (lset-difference-= floors
+;;                                                      (list 1 5)))))
+;;     (let ((cooper (amb-element-of (lset-difference-= floors
+;;                                                      (list 1 fletcher)))))
+;;       (require (not (= (abs (- fletcher cooper))
+;;                        1)))
+;;       (let ((smith (amb-element-of (lset-difference-= floors
+;;                                                       (list fletcher cooper)))))
+;;         (require (not (= (abs (- smith fletcher))
+;;                          1)))
+;;         (let ((miller (amb-element-of (lset-difference-= floors
+;;                                                          (list fletcher cooper smith)))))
+;;           (require (> miller cooper))
+;;           (let ((baker (car (lset-difference-= floors
+;;                                                (list fletcher cooper smith miller)))))
+;;             (list (list 'baker baker)
+;;                   (list 'cooper cooper)
+;;                   (list 'fletcher fletcher)
+;;                   (list 'miller miller)
+;;                   (list 'smith smith))))))))
