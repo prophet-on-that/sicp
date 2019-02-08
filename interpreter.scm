@@ -566,34 +566,33 @@
 (define (primitive-implementation proc)
   (cadr proc))
 
+(define-syntax-rule (unary-predicate symbol)
+  (list (quote symbol)
+        (lambda (a)
+          (if (symbol a)
+              'true
+              'false))))
+
+(define-syntax-rule (binary-predicate symbol)
+  (list (quote symbol)
+        (lambda (a b)
+          (if (symbol a b)
+              'true
+              'false))))
+
 (define primitive-procedures
   (list (list 'car car)
         (list 'cdr cdr)
         (list 'cons cons)
-        (list 'null? (lambda (list)
-                       (if (null? list)
-                           'true
-                           'false)))
+        (unary-predicate null?)
         (list 'list list)
-        (list '= (lambda (m n)
-                   (if (= m n)
-                       'true
-                       'false)))
+        (binary-predicate =)
         (list '+ +)
         (list '- -)
         (list '* *)
-        (list '>= (lambda (m n)
-                    (if (>= m n)
-                        'true
-                        'false)))
-        (list '> (lambda (m n)
-                   (if (> m n)
-                       'true
-                       'false)))
-        (list 'eq? (lambda (m n)
-                     (if (eq? m n)
-                         'true
-                         'false)))
+        (binary-predicate >=)
+        (binary-predicate >)
+        (binary-predicate eq?)
         (list 'abs abs)))
 
 (define (primitive-procedure-names)
