@@ -430,6 +430,18 @@
                                   fail)))))
 
 (dispatch-table-put! analyse-dispatch-table
+                     'permanent-set!
+                     (lambda (exp)
+                       (let ((var (assignment-variable exp))
+                             (vproc (analyse (assignment-value exp))))
+                         (lambda (env succeed fail)
+                           (vproc env
+                                  (lambda (val fail2)
+                                    (set-variable-value! var val env)
+                                    (succeed 'ok fail2))
+                                  fail)))))
+
+(dispatch-table-put! analyse-dispatch-table
                      'define
                      (lambda (exp)
                        (let ((var (definition-variable exp))
