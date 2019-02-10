@@ -584,6 +584,25 @@
                                       (try-next (delete-at choices n)))))))
                            (try-next cprocs)))))
 
+(define (if-fail-predicate exp)
+  (cadr exp))
+
+(define (if-fail-alternative exp)
+  (caddr exp))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'if-fail
+                     (lambda (exp)
+                       (let ((pproc (analyse (if-fail-predicate exp)))
+                             (aproc (analyse (if-fail-alternative exp))))
+                         (lambda (env succeed fail)
+                           (pproc env
+                                  succeed
+                                  (lambda ()
+                                    (aproc env
+                                           succeed
+                                           fail)))))))
+
 ;;; Environment
 
 (define-public (setup-environment)
