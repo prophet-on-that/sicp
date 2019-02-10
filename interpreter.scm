@@ -326,6 +326,9 @@
 (define (amb-choices exp)
   (cdr exp))
 
+(define (ramb-choices exp)
+  (cdr exp))
+
 ;;; Predicate testing
 
 (define (true? x)
@@ -546,6 +549,27 @@
                                   succeed
                                   (lambda ()
                                     (try-next (cdr choices))))))
+                           (try-next cprocs)))))
+
+(define (delete-at list k)
+  (if (= k 0)
+      (cdr list)
+      (cons (car list)
+            (delete-at (cdr list) (1- k)))))
+
+(dispatch-table-put! analyse-dispatch-table
+                     'ramb
+                     (lambda (exp)
+                       (let ((cprocs (map analyse (ramb-choices exp))))
+                         (lambda (env succeed fail)
+                           (define (try-next choices)
+                             (if (null? choices)
+                                 (fail)
+                                 (let ((n (random (length choices))))
+                                   ((list-ref choices n) env
+                                    succeed
+                                    (lambda ()
+                                      (try-next (delete-at choices n)))))))
                            (try-next cprocs)))))
 
 ;;; Environment
