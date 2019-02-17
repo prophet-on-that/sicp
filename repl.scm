@@ -1,6 +1,7 @@
 (define-module (sicp repl))
 
-(use-modules (sicp interpreter))
+(use-modules (sicp interpreter)
+             (sicp eval-utils))
 
 (define input-prompt ";;; L-Eval input:")
 
@@ -15,12 +16,6 @@
         (display (user-render output #:force? force-print? #:max-depth max-print-depth))))
     (helper))
   (helper))
-
-(define (prompt-for-input string)
-  (newline)
-  (newline)
-  (display string)
-  (newline))
 
 (define (announce-output string)
   (newline)
