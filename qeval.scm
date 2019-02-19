@@ -216,12 +216,92 @@
           (else #f)))
   (tree-walk exp))
 
-(define THE-ASSERTIONS the-empty-stream)
+(define the-assertions the-empty-stream)
 
 (define (fetch-assertions pattern frame)
   (if (use-index? pattern)
       (get-indexed-assertions pattern)
       (get-all-assertions)))
 
-(define (get-all-assertions THE-ASSERTIONS))
+(define (get-all-assertions)
+  the-assertions)
+
+;;; TODO: use a more efficient data structure for indexed assertion
+;;; lookup
+(define indexed-assertions '())
+
+(define (get-stream key alist)
+  (let ((entry (assq key alist)))
+    (if entry
+        (cdr entry)
+        the-empty-stream)))
+
+(define (get-indexed-assertions pattern)
+  (get-stream (index-key-of pattern) indexed-assertions))
+
+(define the-rules the-empty-stream)
+
+(define (fetch-rules pattern frame)
+  (if (use-index? pattern)
+      (get-indexed-rules pattern)
+      (get-all-rules)))
+
+(define (get-all-rules)
+  the-rules)
+
+;;; TODO: use a more efficient data structure than an alist
+(define indexed-rules '())
+
+(define (get-indexed-rules pattern)
+  (stream-append
+   (get-stream (index-key-of pattern) indexed-rules)
+   (get-stream '? indexed-rules)))
+
+(define (add-rule-or-assertion! assertion)
+  (if (rule? assertion)
+      (add-rule! assertion)
+      (add-assertion! assertion)))
+
+(define (add-assertion! assertion)
+  (store-assertion-in-index assertion)
+  (let ((old-assertions the-assertions))
+    (set! the-assertions
+          (stream-cons assertion old-assertions))
+    'ok))
+
+(define (add-rule! rule)
+  (store-rule-in-index rule)
+  (let ((old-rules the-rules))
+    (set! the-rules (stream-cons rule old-rules))
+    'ok))
+
+(define (store-assertion-in-index assertion)
+  (if (indexable? assertion)
+      (let ((key (index-key-of assertion)))
+        (let ((current-assertion-stream
+               (get-stream key indexed-assertions)))
+          (assq-set! indexed-assertions
+                     key
+                     (stream-cons assertion current-assertion-stream))))))
+
+(define (store-rule-in-index rule)
+  (let ((pattern (conclusion rule)))
+    (if (indexable? pattern)
+        (let ((key (index-key-of pattern)))
+          (let ((current-rule-stream
+                 (get-stream key indexed-rules)))
+            (assq-set! indexed-rules
+                       key
+                       (stream-cons rule current-rule-stream)))))))
+
+(define (indexable? pat)
+  (or (constant-symbol? (car pat))
+      (var? (car pat))))
+
+(define (index-key-of pat)
+  (let ((key (car pat)))
+    (if (var? key) '? key)))
+
+(define (use-index? pat)
+  (constant-symbol? (car pat)))
 
