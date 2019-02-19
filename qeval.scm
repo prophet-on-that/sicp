@@ -133,8 +133,8 @@
          (pattern-match (cdr pat)
                         (cdr dat)
                         (pattern-match (car pat)
-                                       (car dat
-                                            frame))))
+                                       (car dat)
+                                       frame)))
         (else 'failed)))
 
 (define (extend-if-consistent var dat frame)
