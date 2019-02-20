@@ -4,6 +4,30 @@
              (srfi srfi-41)
              (sicp dispatch-table))
 
+(define-syntax-rule (singleton-stream e)
+  (stream-cons e stream-null))
+
+(define (stream-interleave s1 s2)
+  (if (stream-null? s1)
+      s2
+      (stream-cons (stream-car s1)
+                   (stream-interleave s2 (stream-cdr s1)))))
+
+(define (stream-flatmap proc s)
+  (flatten-stream (stream-map proc s)))
+
+(define (flatten-stream stream)
+  (if (stream-null? stream)
+      stream-null
+      (stream-interleave (stream-car stream)
+                         (flatten-stream (stream-cdr stream)))))
+
+(define (display-stream s)
+  (stream-for-each (lambda (elem)
+                     (newline)
+                     (display elem))
+                   s))
+
 (define input-prompt ";;; Query input:")
 (define output-prompt ";;; Query results:")
 
@@ -13,11 +37,11 @@
     (cond ((assertion-to-be-added? q)
            (add-rule-or-assertion! (add-assertion-body q))
            (newline)
-           (diplay "Assertion added to data base.")
+           (display "Assertion added to data base.")
            (query-driver-loop))
           (else
            (newline)
-           (display-output-prompt)
+           (display output-prompt)
            (display-stream
             (stream-map
              (lambda (frame)
@@ -49,15 +73,12 @@
         (qproc (contents query) frame-stream)
         (simple-query query frame-stream))))
 
-(define (stream-flatmap proc stream)
-  (stream-concat (stream-map proc stream)))
-
 (define (simple-query query-pattern frame-stream)
   (stream-flatmap
    (lambda (frame)
-     (stream-append-delayed
+     (stream-append
       (find-assertions query-pattern frame)
-      (delay (apply-rules query-pattern frame))))
+      (apply-rules query-pattern frame)))
    frame-stream))
 
 (define (conjoin conjuncts frame-stream)
@@ -67,17 +88,17 @@
                (qeval (first-conjunct conjuncts)
                       frame-stream))))
 
-(dipatch-table-put qeval-dispatch-table 'and conjoin)
+(dispatch-table-put! qeval-dispatch-table 'and conjoin)
 
 (define (disjoin disjuncts frame-stream)
   (if (empty-disjunction? disjuncts)
       stream-null
-      (interleave-delayed
+      (stream-interleave
        (qeval (first-disjunct disjuncts) frame-stream)
-       (delay (disjoin (rest-disjuncts disjuncts)
-                       frame-stream)))))
+       (disjoin (rest-disjuncts disjuncts)
+                frame-stream))))
 
-(dispatch-table-put qeval-dispatch-table 'or disjoin)
+(dispatch-table-put! qeval-dispatch-table 'or disjoin)
 
 (define (negate operands frame-stream)
   (stream-flatmap
@@ -88,7 +109,7 @@
          stream-null))
    frame-stream))
 
-(dispatch-table-put qeval-dispatch-table 'not negate)
+(dispatch-table-put! qeval-dispatch-table 'not negate)
 
 (define (lisp-value call frame-stream)
   (stream-flatmap
@@ -100,9 +121,10 @@
            (lambda (v f)
              (error "Unknown pat var -- LISP-VALUE" v))))
          (singleton-stream frame)
-         stream-null))))
+         stream-null))
+   frame-stream))
 
-(dispatch-table-put qeval-dispatch-table 'lisp-value lisp-value)
+(dispatch-table-put! qeval-dispatch-table 'lisp-value lisp-value)
 
 (define (execute exp)
   (apply (eval (predicate exp) (interaction-environment))
@@ -110,7 +132,7 @@
 
 (define (always-true ignore frame-stream) frame-stream)
 
-(dispatch-table-put qeval-dispatch-table 'always-true always-true)
+(dispatch-table-put! qeval-dispatch-table 'always-true always-true)
 
 (define (find-assertions pattern frame)
   (stream-flatmap (lambda (datum)
@@ -121,7 +143,7 @@
   (let ((match-result
          (pattern-match query-pat assertion query-frame)))
     (if (eq? match-result 'failed)
-        null-stream
+        stream-null
         (singleton-stream match-result))))
 
 (define (pattern-match pat dat frame)
@@ -155,7 +177,7 @@
                         (conclusion clean-rule)
                         query-frame)))
       (if (eq? unify-result 'failed)
-          null-stream
+          stream-null
           (qeval (rule-body clean-rule)
                  (singleton-stream unify-result))))))
 
@@ -216,7 +238,7 @@
           (else #f)))
   (tree-walk exp))
 
-(define the-assertions the-empty-stream)
+(define the-assertions stream-null)
 
 (define (fetch-assertions pattern frame)
   (if (use-index? pattern)
@@ -234,12 +256,12 @@
   (let ((entry (assq key alist)))
     (if entry
         (cdr entry)
-        the-empty-stream)))
+        stream-null)))
 
 (define (get-indexed-assertions pattern)
   (get-stream (index-key-of pattern) indexed-assertions))
 
-(define the-rules the-empty-stream)
+(define the-rules stream-null)
 
 (define (fetch-rules pattern frame)
   (if (use-index? pattern)
@@ -305,3 +327,113 @@
 (define (use-index? pat)
   (constant-symbol? (car pat)))
 
+(define (type exp)
+  (if (pair? exp)
+      (car exp)
+      (error "Unknown expression TYPE" exp)))
+
+(define (contents exp)
+  (if (pair? exp)
+      (cdr exp)
+      (error "Unknown expressions CONTENTS" exp)))
+
+(define (assertion-to-be-added? exp)
+  (eq? (type exp) 'assert!))
+
+(define (add-assertion-body exp)
+  (car (contents exp)))
+
+(define (empty-conjunction? exps)
+  (null? exps))
+
+(define (first-conjunct exps)
+  (car exps))
+
+(define (rest-conjuncts exps)
+  (cdr exps))
+
+(define (empty-disjunction? exps)
+  (null? exps))
+
+(define (first-disjunct exps)
+  (car exps))
+
+(define (rest-disjuncts exps)
+  (cdr exps))
+
+(define (negated-query exps)
+  (car exps))
+
+(define (predicate exps)
+  (car exps))
+
+(define (args exps)
+  (cdr exps))
+
+(define (rule? statement)
+  (tagged-list? statement 'rule))
+
+(define (conclusion rule)
+  (cadr rule))
+
+(define (rule-body rule)
+  (if (null? (cddr rule))
+      '(always-true)
+      (caddr rule)))
+
+(define (query-syntax-process exp)
+  (map-over-symbols expand-question-mark exp))
+
+(define (map-over-symbols proc exp)
+  (cond ((pair? exp)
+         (cons (map-over-symbols proc (car exp))
+               (map-over-symbols proc (cdr exp))))
+        ((symbol? exp) (proc exp))
+        (else exp)))
+
+(define (expand-question-mark symbol)
+  (let ((chars (symbol->string symbol)))
+    (if (string=? (substring chars 0 1) "?")
+        (list '?
+              (string->symbol
+               (substring chars 1 (string-length chars))))
+        symbol)))
+
+(define (var? exp)
+  (tagged-list? exp '?))
+
+(define (constant-symbol? exp)
+  (symbol? exp))
+
+(define rule-counter 0)
+
+(define (new-rule-application-id)
+  (set! rule-counter (1+ rule-counter))
+  rule-counter)
+
+(define (make-new-variable var rule-application-id)
+  (cons '? (cons rule-application-id (cdr var))))
+
+(define (contract-question-mark variable)
+  (string->symbol
+   (string-append "?"
+                   (if (number? (cadr variable))
+                       (string-append (symbol->string (caddr variable))
+                                      "-"
+                                      (number->string (cadr variable)))
+                       (symbol->string (cadr variable))))))
+
+(define (make-binding variable value)
+  (cons variable value))
+
+(define (binding-variable binding)
+  (car binding))
+
+(define (binding-value binding)
+  (cdr binding))
+
+(define (binding-in-frame variable frame)
+  (assoc variable frame))
+
+(define (extend variable value frame)
+  (cons (make-binding variable value) frame))
