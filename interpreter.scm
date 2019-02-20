@@ -1,7 +1,7 @@
 (define-module (sicp interpreter)
   #:export (user-render))
 
-(use-modules (sicp utils)
+(use-modules (sicp eval-utils)
              (sicp env)
              (sicp dispatch-table)
              (sicp thunk)

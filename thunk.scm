@@ -1,7 +1,7 @@
 (define-module (sicp thunk)
   #:export (delay-it))
 
-(use-modules (sicp utils))
+(use-modules (sicp eval-utils))
 
 (define* (delay-it exp env #:key (memo #t))
   (list 'thunk exp env memo))
