@@ -34,7 +34,9 @@
 (define-public (query-driver-loop)
   (prompt-for-input input-prompt)
   (let ((q (query-syntax-process (read))))
-    (cond ((assertion-to-be-added? q)
+    (cond ((eq? q 'quit)
+           'quit)
+          ((assertion-to-be-added? q)
            (add-rule-or-assertion! (add-assertion-body q))
            (newline)
            (display "Assertion added to data base.")
@@ -67,7 +69,7 @@
 
 (define qeval-dispatch-table (create-dispatch-table))
 
-(define (qeval query frame-stream)
+(define-public (qeval query frame-stream)
   (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
     (if qproc
         (qproc (contents query) frame-stream)
@@ -279,7 +281,7 @@
    (get-stream (index-key-of pattern) indexed-rules)
    (get-stream '? indexed-rules)))
 
-(define (add-rule-or-assertion! assertion)
+(define-public (add-rule-or-assertion! assertion)
   (if (rule? assertion)
       (add-rule! assertion)
       (add-assertion! assertion)))
@@ -439,3 +441,8 @@
 
 (define (extend variable value frame)
   (cons (make-binding variable value) frame))
+
+(define-public (clear-database)
+  (set! the-assertions stream-null)
+  (set! indexed-assertions '())
+  (set! indexed-rules '()))
