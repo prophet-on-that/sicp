@@ -302,9 +302,10 @@
       (let ((key (index-key-of assertion)))
         (let ((current-assertion-stream
                (get-stream key indexed-assertions)))
-          (assq-set! indexed-assertions
-                     key
-                     (stream-cons assertion current-assertion-stream))))))
+          (set! indexed-assertions
+                (assq-set! indexed-assertions
+                           key
+                           (stream-cons assertion current-assertion-stream)))))))
 
 (define (store-rule-in-index rule)
   (let ((pattern (conclusion rule)))
@@ -312,9 +313,10 @@
         (let ((key (index-key-of pattern)))
           (let ((current-rule-stream
                  (get-stream key indexed-rules)))
-            (assq-set! indexed-rules
-                       key
-                       (stream-cons rule current-rule-stream)))))))
+            (set! indexed-rules
+                  (assq-set! indexed-rules
+                             key
+                             (stream-cons rule current-rule-stream))))))))
 
 (define (indexable? pat)
   (or (constant-symbol? (car pat))
