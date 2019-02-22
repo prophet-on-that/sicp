@@ -54,6 +54,16 @@
              (qeval q (singleton-stream '()))))
            (query-driver-loop)))))
 
+(define-public (evaluate-and-instantiate query)
+  (let ((q (query-syntax-process query)))
+    (stream-map
+     (lambda (frame)
+       (instantiate q
+                    frame
+                    (lambda (v f)
+                      (contract-question-mark v))))
+     (qeval q (singleton-stream '())))))
+
 (define (instantiate exp frame unbound-var-handler)
   (define (copy exp)
     (cond ((var? exp)
