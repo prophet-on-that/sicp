@@ -23,6 +23,15 @@
       (stream-interleave-delayed (stream-car stream)
                          (delay (flatten-stream (stream-cdr stream))))))
 
+(define (simple-stream-flatmap proc s)
+  (simple-flatten (stream-map proc s)))
+
+(define (simple-flatten stream)
+  (stream-map stream-car
+              (stream-filter (lambda (s)
+                               (not (stream-null? s)))
+                             stream)))
+
 (define (display-stream s)
   (stream-for-each (lambda (elem)
                      (newline)
@@ -114,7 +123,7 @@
 (dispatch-table-put! qeval-dispatch-table 'or disjoin)
 
 (define (negate operands frame-stream)
-  (stream-flatmap
+  (simple-stream-flatmap
    (lambda (frame)
      (if (stream-null? (qeval (negated-query operands)
                               (singleton-stream frame)))
@@ -125,7 +134,7 @@
 (dispatch-table-put! qeval-dispatch-table 'not negate)
 
 (define (lisp-value call frame-stream)
-  (stream-flatmap
+  (simple-stream-flatmap
    (lambda (frame)
      (if (execute
           (instantiate
@@ -148,7 +157,7 @@
 (dispatch-table-put! qeval-dispatch-table 'always-true always-true)
 
 (define (find-assertions pattern frame)
-  (stream-flatmap (lambda (datum)
+  (simple-stream-flatmap (lambda (datum)
                     (check-an-assertion datum pattern frame))
                   (fetch-assertions pattern frame)))
 
