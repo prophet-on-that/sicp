@@ -7,11 +7,12 @@
 (define-syntax-rule (singleton-stream e)
   (stream-cons e stream-null))
 
-(define (stream-interleave s1 s2)
+(define (stream-interleave-delayed s1 delayed-s2)
   (if (stream-null? s1)
-      s2
+      (force delayed-s2)
       (stream-cons (stream-car s1)
-                   (stream-interleave s2 (stream-cdr s1)))))
+                   (stream-interleave-delayed (force delayed-s2)
+                                              (delay (stream-cdr s1))))))
 
 (define (stream-flatmap proc s)
   (flatten-stream (stream-map proc s)))
@@ -19,8 +20,8 @@
 (define (flatten-stream stream)
   (if (stream-null? stream)
       stream-null
-      (stream-interleave (stream-car stream)
-                         (flatten-stream (stream-cdr stream)))))
+      (stream-interleave-delayed (stream-car stream)
+                         (delay (flatten-stream (stream-cdr stream))))))
 
 (define (display-stream s)
   (stream-for-each (lambda (elem)
@@ -105,10 +106,10 @@
 (define (disjoin disjuncts frame-stream)
   (if (empty-disjunction? disjuncts)
       stream-null
-      (stream-interleave
+      (stream-interleave-delayed
        (qeval (first-disjunct disjuncts) frame-stream)
-       (disjoin (rest-disjuncts disjuncts)
-                frame-stream))))
+       (delay (disjoin (rest-disjuncts disjuncts)
+                       frame-stream)))))
 
 (dispatch-table-put! qeval-dispatch-table 'or disjoin)
 
