@@ -21,7 +21,7 @@
   (if (stream-null? stream)
       stream-null
       (stream-interleave-delayed (stream-car stream)
-                         (delay (flatten-stream (stream-cdr stream))))))
+                                 (delay (flatten-stream (stream-cdr stream))))))
 
 (define (simple-stream-flatmap proc s)
   (simple-flatten (stream-map proc s)))
@@ -158,8 +158,8 @@
 
 (define (find-assertions pattern frame)
   (simple-stream-flatmap (lambda (datum)
-                    (check-an-assertion datum pattern frame))
-                  (fetch-assertions pattern frame)))
+                           (check-an-assertion datum pattern frame))
+                         (fetch-assertions pattern frame)))
 
 (define (check-an-assertion assertion query-pat query-frame)
   (let ((match-result
@@ -441,11 +441,11 @@
 (define (contract-question-mark variable)
   (string->symbol
    (string-append "?"
-                   (if (number? (cadr variable))
-                       (string-append (symbol->string (caddr variable))
-                                      "-"
-                                      (number->string (cadr variable)))
-                       (symbol->string (cadr variable))))))
+                  (if (number? (cadr variable))
+                      (string-append (symbol->string (caddr variable))
+                                     "-"
+                                     (number->string (cadr variable)))
+                      (symbol->string (cadr variable))))))
 
 (define (make-binding variable value)
   (cons variable value))
