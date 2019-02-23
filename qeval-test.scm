@@ -27,7 +27,7 @@
 (define computer-programmer-trainee '(computer programmer trainee))
 
 (define assertions
-  `((address ,ben (Slumberville (Ridge Road) 10))
+  `((address ,ben (Slumerville (Ridge Road) 10))
     (job ,ben ,computer-wizard)
     (salary ,ben 60000)
 
@@ -79,8 +79,40 @@
 
     (can-do-job (administration secretary) (administration big wheel))))
 
+(define rules
+  `((rule (same ?x ?x))
+
+    (rule (lives-near ?person-1 ?person-2)
+          (and (address ?person-1 (?town . ?rest-1))
+               (address ?person-2 (?town . ?rest-2))
+               (not (same ?person-1 ?person-2))))
+
+    (rule (outranked-by ?staff-person ?boss)
+          (or (supervisor ?staff-person ?boss)
+              (and (supervisor ?staff-person ?middle-manager)
+                   (outranked-by ?middle-manager ?boss))))
+
+    (rule (wheel ?person)
+          (and (supervisor ?middle-manager ?person)
+               (supervisor ?x ?middle-manager)))
+
+    (rule (can-replace ?person-1 ?person-2)
+          (and (job ?person-1 ?job-1)
+               (job ?person-2 ?job-2)
+               (or (same ?job-1 ?job-2)
+                   (can-do-job ?job-1 ?job-2))
+               (not (same ?person-1 ?person-2))))
+
+    (rule (big-shot ?person)
+          (and (job ?person (?division . ?rest))
+               (not (and (supervisor ?person ?boss)
+                         (job ?boss (?division . ?rest2))))))))
+
 (define (load-db)
-  (map add-rule-or-assertion! assertions))
+  (map add-rule-or-assertion! assertions)
+  (map (lambda (rule)
+         (add-rule-or-assertion! (query-syntax-process rule)))
+       rules))
 
 ;;; Test suite
 
@@ -157,6 +189,39 @@
                              (lisp-value > ,eben-salary ,min-salary))
                         (and (salary ,oliver ,oliver-salary)
                              (lisp-value > ,oliver-salary ,min-salary))))
+
+(test-begin "rules")
+
+(assert-query-results `(same ,ben ,ben)
+                      `((same ,ben ,ben)))
+
+(assert-query-results `(same ,ben ,alyssa)
+                      '())
+
+(assert-query-results `(lives-near ?x ,ben)
+                      `((lives-near ,louis ,ben)
+                        (lives-near ,deWitt ,ben)))
+
+(assert-query-results `(and (job ?x (computer . ?rest))
+                            (lives-near ?x ,ben))
+                      `((and (job ,louis ,computer-programmer-trainee)
+                             (lives-near ,louis ,ben))))
+
+(assert-query-results `(outranked-by ,louis ?x)
+                      `((outranked-by ,louis ,alyssa)
+                        (outranked-by ,louis ,ben)
+                        (outranked-by ,louis ,oliver)))
+
+(assert-query-results `(can-replace ?x ,cy)
+                      `((can-replace ,ben ,cy)
+                        (can-replace ,alyssa ,cy)))
+
+(assert-query-results '(big-shot ?x)
+                      `((big-shot ,eben)
+                        (big-shot ,oliver)
+                        (big-shot ,ben)))
+
+(test-end "rules")
 
 (test-end "patterns")
 

@@ -395,7 +395,7 @@
       '(always-true)
       (caddr rule)))
 
-(define (query-syntax-process exp)
+(define-public (query-syntax-process exp)
   (map-over-symbols expand-question-mark exp))
 
 (define (map-over-symbols proc exp)
