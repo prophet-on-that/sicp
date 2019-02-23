@@ -25,6 +25,7 @@
 (define computer-wizard '(computer wizard))
 (define computer-technician '(computer technician))
 (define computer-programmer-trainee '(computer programmer trainee))
+(define chief-accountant '(accounting chief accountant))
 
 (define assertions
   `((address ,ben (Slumerville (Ridge Road) 10))
@@ -58,7 +59,7 @@
     (salary ,oliver ,oliver-salary)
 
     (address ,eben (Weston (Shady Lane) 10))
-    (job ,eben (accounting chief accountant))
+    (job ,eben ,chief-accountant)
     (salary ,eben ,eben-salary)
     (supervisor ,eben ,oliver)
 
@@ -189,6 +190,19 @@
                              (lisp-value > ,eben-salary ,min-salary))
                         (and (salary ,oliver ,oliver-salary)
                              (lisp-value > ,oliver-salary ,min-salary))))
+
+(assert-query-results `(unique (job ,ben ,computer-wizard))
+                      `((unique (job ,ben ,computer-wizard))))
+
+(assert-query-results `(unique (job ?x ,computer-programmer))
+                      '())
+
+(assert-query-results `(and (job ?boss ?j)
+                            (unique (supervisor ?person ?boss)))
+                      `((and (job ,eben ,chief-accountant)
+                             (unique (supervisor ?person ,eben)))
+                        (and (job ,alyssa ,computer-programmer)
+                             (unique (supervisor ?person ,alyssa)))))
 
 (test-begin "rules")
 

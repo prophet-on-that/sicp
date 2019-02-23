@@ -156,6 +156,19 @@
 
 (dispatch-table-put! qeval-dispatch-table 'always-true always-true)
 
+(define (uniquely-asserted exp frame-stream)
+  (simple-stream-flatmap
+   (lambda (frame)
+     (let ((results-stream (qeval (car exp)
+                                  (singleton-stream frame))))
+       (if (and (not (stream-null? results-stream))
+                (stream-null? (stream-cdr results-stream)))
+           (singleton-stream frame)
+           stream-null)))
+   frame-stream))
+
+(dispatch-table-put! qeval-dispatch-table 'unique uniquely-asserted)
+
 (define (find-assertions pattern frame)
   (simple-stream-flatmap (lambda (datum)
                            (check-an-assertion datum pattern frame))
