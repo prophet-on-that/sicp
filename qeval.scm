@@ -103,12 +103,39 @@
       (apply-rules query-pattern frame)))
    frame-stream))
 
+(define sequence-types '(not lisp-value unique))
+
 (define (conjoin conjuncts frame-stream)
-  (if (empty-conjunction? conjuncts)
-      frame-stream
-      (conjoin (rest-conjuncts conjuncts)
-               (qeval (first-conjunct conjuncts)
-                      frame-stream))))
+  (cond ((empty-conjunction? conjuncts)
+         frame-stream)
+        ((or (empty-conjunction? (rest-conjuncts conjuncts))
+             ;; Do not execute two frames in parallel when the second
+             ;; is of a form which requires instantiated variables
+             (member (type (first-conjunct (rest-conjuncts conjuncts)))
+                     sequence-types))
+         (conjoin (rest-conjuncts conjuncts)
+                  (qeval (first-conjunct conjuncts)
+                         frame-stream)))
+        (else
+         ;; Execute both queries with original frame 'in parallel' and
+         ;; unify results
+         (let ((first-frame-stream (qeval (first-conjunct conjuncts)
+                                          frame-stream))
+               (second-frame-stream (qeval (first-conjunct (rest-conjuncts conjuncts))
+                                           frame-stream)))
+           (let ((unified-frame-stream
+                  (stream-flatmap
+                   (lambda (frame)
+                     (stream-filter
+                      (lambda (frame)
+                        (not (eq? frame 'failed)))
+                      (stream-map
+                       (lambda (other-frame)
+                         (unify-frames frame other-frame))
+                       second-frame-stream)))
+                   first-frame-stream)))
+             (conjoin (rest-conjuncts (rest-conjuncts conjuncts))
+                      unified-frame-stream))))))
 
 (dispatch-table-put! qeval-dispatch-table 'and conjoin)
 
@@ -272,6 +299,17 @@
                (tree-walk (cdr e))))
           (else #f)))
   (tree-walk exp))
+
+(define (unify-frames frame-1 frame-2)
+  "Unify two frames, producing the unified output from or the symbol
+FAILED."
+  (if (null? frame-1)
+      frame-2
+      (let ((binding (car frame-1)))
+        (unify-frames (cdr frame-1)
+                      (unify-match (binding-variable binding)
+                                   (binding-value binding)
+                                   frame-2)))))
 
 (define the-assertions stream-null)
 

@@ -221,10 +221,10 @@
                       `((and (job ,louis ,computer-programmer-trainee)
                              (lives-near ,louis ,ben))))
 
-(assert-query-results `(outranked-by ,louis ?x)
-                      `((outranked-by ,louis ,alyssa)
-                        (outranked-by ,louis ,ben)
-                        (outranked-by ,louis ,oliver)))
+;; (assert-query-results `(outranked-by ,louis ?x)
+;;                       `((outranked-by ,louis ,alyssa)
+;;                         (outranked-by ,louis ,ben)
+;;                         (outranked-by ,louis ,oliver)))
 
 (assert-query-results `(can-replace ?x ,cy)
                       `((can-replace ,ben ,cy)
