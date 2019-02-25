@@ -61,7 +61,7 @@
                             frame
                             (lambda (v f)
                               (contract-question-mark v))))
-             (qeval q (singleton-stream '()))))
+             (qeval q (singleton-stream (make-empty-frame)))))
            (query-driver-loop)))))
 
 (define-public (evaluate-and-instantiate query)
@@ -72,7 +72,7 @@
                     frame
                     (lambda (v f)
                       (contract-question-mark v))))
-     (qeval q (singleton-stream '())))))
+     (qeval q (singleton-stream (make-empty-frame))))))
 
 (define (instantiate exp frame unbound-var-handler)
   (define (copy exp)
@@ -469,11 +469,22 @@
 (define (binding-value binding)
   (cdr binding))
 
+(define (make-empty-frame)
+  (list '()))
+
+(define (make-frame bindings)
+  (list bindings))
+
+(define (frame-bindings frame)
+  (car frame))
+
 (define (binding-in-frame variable frame)
-  (assoc variable frame))
+  (assoc variable (frame-bindings frame)))
 
 (define (extend variable value frame)
-  (cons (make-binding variable value) frame))
+  "Create a new frame with extended bindings."
+  (make-frame (cons (make-binding variable value)
+                    (frame-bindings frame))))
 
 (define-public (clear-database)
   (set! the-assertions stream-null)
