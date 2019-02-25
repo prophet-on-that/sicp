@@ -89,11 +89,50 @@
 
 (define qeval-dispatch-table (create-dispatch-table))
 
+(define filter-query-types '(lisp-value))
+
 (define-public (qeval query frame-stream)
-  (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
-    (if qproc
-        (qproc (contents query) frame-stream)
-        (simple-query query frame-stream))))
+  (if (member (type query) filter-query-types)
+      (stream-map
+       (lambda (frame)
+         (frame-add-filter-query query frame))
+       frame-stream)
+      (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
+        (let ((frame-stream
+               (if qproc
+                   (qproc (contents query) frame-stream)
+                   (simple-query query frame-stream))))
+          ;; Apply filter queries where possible
+          (simple-stream-flatmap
+           (lambda (frame)
+             (let ((filtered-frame (apply-frame-filter-queries frame)))
+               (if filtered-frame
+                   (singleton-stream filtered-frame)
+                   stream-null)))
+           frame-stream)))))
+
+(define (apply-frame-filter-queries frame)
+  (define (go filter-queries frame)
+    (if (null? filter-queries)
+        frame
+        (catch
+          'unbound-var
+          (lambda ()
+            (let ((query (instantiate (car filter-queries)
+                                      frame
+                                      (lambda (exp f)
+                                        (throw 'unbound-var)))))
+              (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
+                (if qproc
+                    (if (stream-null? (qproc (contents query) (singleton-stream frame)))
+                        #f
+                        (go (cdr filter-queries) frame))
+                    (error "Unknown filter query -- APPLY-FRAME-FILTER-QUERIES" query)))))
+          (lambda (key . args)
+            (go (cdr filter-queries)
+                (frame-add-filter-query (car filter-queries) frame))))))
+  (go (frame-filter-queries frame)
+      (make-frame (frame-bindings frame) '())))
 
 (define (simple-query query-pattern frame-stream)
   (stream-flatmap
@@ -136,12 +175,7 @@
 (define (lisp-value call frame-stream)
   (simple-stream-flatmap
    (lambda (frame)
-     (if (execute
-          (instantiate
-           call
-           frame
-           (lambda (v f)
-             (error "Unknown pat var -- LISP-VALUE" v))))
+     (if (execute call)                 ; Assume fully-instantiated
          (singleton-stream frame)
          stream-null))
    frame-stream))
@@ -470,13 +504,16 @@
   (cdr binding))
 
 (define (make-empty-frame)
-  (list '()))
+  (list '() '()))
 
-(define (make-frame bindings)
+(define (make-frame bindings filter-queries)
   (list bindings))
 
 (define (frame-bindings frame)
   (car frame))
+
+(define (frame-filter-queries frame)
+  (cadr frame))
 
 (define (binding-in-frame variable frame)
   (assoc variable (frame-bindings frame)))
@@ -484,7 +521,13 @@
 (define (extend variable value frame)
   "Create a new frame with extended bindings."
   (make-frame (cons (make-binding variable value)
-                    (frame-bindings frame))))
+                    (frame-bindings frame))
+              (frame-filter-queries frame)))
+
+(define (frame-add-filter-query query frame)
+  "Create a new frame with extended filter queries."
+  (make-frame (frame-bindings frame)
+              (cons query (frame-filter-queries frame))))
 
 (define-public (clear-database)
   (set! the-assertions stream-null)
