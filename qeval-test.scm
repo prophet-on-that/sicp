@@ -184,12 +184,12 @@
                              (not (job ,lem ,computer-programmer)))))
 
 (define min-salary 60000)
-(assert-query-results `(and (salary ?person ?amount)
-                            (lisp-value > ?amount ,min-salary))
-                      `((and (salary ,eben ,eben-salary)
-                             (lisp-value > ,eben-salary ,min-salary))
-                        (and (salary ,oliver ,oliver-salary)
-                             (lisp-value > ,oliver-salary ,min-salary))))
+(assert-query-results `(and (lisp-value > ?amount ,min-salary)
+                            (salary ?person ?amount))
+                      `((and (lisp-value > ,eben-salary ,min-salary)
+                             (salary ,eben ,eben-salary))
+                        (and (lisp-value > ,oliver-salary ,min-salary)
+                             (salary ,oliver ,oliver-salary))))
 
 (assert-query-results `(unique (job ,ben ,computer-wizard))
                       `((unique (job ,ben ,computer-wizard))))

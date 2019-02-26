@@ -507,7 +507,7 @@
   (list '() '()))
 
 (define (make-frame bindings filter-queries)
-  (list bindings))
+  (list bindings filter-queries))
 
 (define (frame-bindings frame)
   (car frame))
