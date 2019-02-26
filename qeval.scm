@@ -38,6 +38,14 @@
                      (display elem))
                    s))
 
+(define (stream-any pred s)
+  (cond ((stream-null? s)
+         #f)
+        ((pred (stream-car s))
+         #t)
+        (else
+         (stream-any pred (stream-cdr s)))))
+
 (define input-prompt ";;; Query input:")
 (define output-prompt ";;; Query results:")
 
@@ -52,17 +60,25 @@
            (display "Assertion added to data base.")
            (query-driver-loop))
           (else
-           (newline)
-           (display output-prompt)
-           (display-stream
-            (stream-map
-             (lambda (frame)
-               (instantiate q
-                            frame
-                            (lambda (v f)
-                              (contract-question-mark v))))
-             (qeval q (singleton-stream (make-empty-frame)))))
-           (query-driver-loop)))))
+           (let ((results-stream (qeval q (singleton-stream (make-empty-frame)))))
+             (newline)
+             (if (stream-any
+                  (lambda (frame)
+                    (not (null? (frame-filter-queries frame))))
+                  results-stream)
+                 (begin
+                   (display "Warning: at least one frame exists with an outstanding filter query.")
+                   (newline)))
+             (display output-prompt)
+             (display-stream
+              (stream-map
+               (lambda (frame)
+                 (instantiate q
+                              frame
+                              (lambda (v f)
+                                (contract-question-mark v))))
+               results-stream))
+             (query-driver-loop))))))
 
 (define-public (evaluate-and-instantiate query)
   (let ((q (query-syntax-process query)))
@@ -92,24 +108,25 @@
 (define filter-query-types '(lisp-value))
 
 (define-public (qeval query frame-stream)
-  (if (member (type query) filter-query-types)
-      (stream-map
-       (lambda (frame)
-         (frame-add-filter-query query frame))
-       frame-stream)
-      (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
-        (let ((frame-stream
-               (if qproc
-                   (qproc (contents query) frame-stream)
-                   (simple-query query frame-stream))))
-          ;; Apply filter queries where possible
-          (simple-stream-flatmap
-           (lambda (frame)
-             (let ((filtered-frame (apply-frame-filter-queries frame)))
-               (if filtered-frame
-                   (singleton-stream filtered-frame)
-                   stream-null)))
-           frame-stream)))))
+  (let ((results-stream
+         (if (member (type query) filter-query-types)
+             (stream-map
+              (lambda (frame)
+                (frame-add-filter-query query frame))
+              frame-stream)
+             (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
+               (frame-stream
+                (if qproc
+                    (qproc (contents query) frame-stream)
+                    (simple-query query frame-stream)))))))
+    ;; Apply filter queries where possible
+    (simple-stream-flatmap
+     (lambda (frame)
+       (let ((filtered-frame (apply-frame-filter-queries frame)))
+         (if filtered-frame
+             (singleton-stream filtered-frame)
+             stream-null)))
+     frame-stream)))
 
 (define (apply-frame-filter-queries frame)
   (define (go filter-queries frame)
