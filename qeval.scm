@@ -67,7 +67,7 @@
                     (not (null? (frame-filter-queries frame))))
                   results-stream)
                  (begin
-                   (display "Warning: at least one frame exists with an outstanding filter query.")
+                   (display ";;; Warning: at least one frame exists with an outstanding filter query.")
                    (newline)))
              (display output-prompt)
              (display-stream
@@ -115,10 +115,9 @@
                 (frame-add-filter-query query frame))
               frame-stream)
              (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
-               (frame-stream
-                (if qproc
-                    (qproc (contents query) frame-stream)
-                    (simple-query query frame-stream)))))))
+               (if qproc
+                   (qproc (contents query) frame-stream)
+                   (simple-query query frame-stream))))))
     ;; Apply filter queries where possible
     (simple-stream-flatmap
      (lambda (frame)
@@ -126,7 +125,7 @@
          (if filtered-frame
              (singleton-stream filtered-frame)
              stream-null)))
-     frame-stream)))
+     results-stream)))
 
 (define (apply-frame-filter-queries frame)
   (define (go filter-queries frame)
