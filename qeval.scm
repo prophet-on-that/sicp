@@ -105,7 +105,7 @@
 
 (define qeval-dispatch-table (create-dispatch-table))
 
-(define filter-query-types '(not lisp-value))
+(define filter-query-types '(not lisp-value unique))
 
 (define (qeval query frame-stream)
   (let ((results-stream (qeval-internal query frame-stream)))
