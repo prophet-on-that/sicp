@@ -2,17 +2,15 @@
 
 (use-modules (sicp eval-utils))
 
-(define-public make-machine
-  (lambda* (register-names ops controller-text #:key (stack-mode 'normal))
-    (let ((machine (make-new-machine stack-mode)))
-      (for-each (lambda (register-name)
-                  ((machine 'allocate-register) register-name))
-                register-names)
-      (machine 'initialise-stack-controller)
-      ((machine 'install-operations) ops)
-      ((machine 'install-instruction-sequence)
-       (assemble controller-text machine))
-      machine)))
+(define-public (make-machine register-names ops controller-text)
+  (let ((machine (make-new-machine)))
+    (for-each (lambda (register-name)
+                ((machine 'allocate-register) register-name))
+              register-names)
+    ((machine 'install-operations) ops)
+    ((machine 'install-instruction-sequence)
+     (assemble controller-text machine))
+    machine))
 
 ;;; Registers
 
@@ -54,77 +52,11 @@
             (else (error "Unknown request -- STACK" message))))
     dispatch))
 
-(define (stack-pop stack)
+(define (pop stack)
   (stack 'pop))
 
-(define (stack-push stack value)
+(define (push stack value)
   ((stack 'push) value))
-
-;;; Stack controller
-
-(define (make-stack-controller stack-mode)
-  (let ((stacks '()))
-    (define (initialise registers)
-      (cond ((or (eq? stack-mode 'normal)
-                 (eq? stack-mode 'strict))
-             (set! stacks (list (make-stack))))
-            ((eq? stack-mode 'per-register)
-             (set! stacks
-                   (map (lambda (register)
-                          (cons register (make-stack)))
-                        registers)))
-            (else
-             (error "Unknown stack mode -- ASSEMBLER" stack-mode))))
-    (define (push value register)
-      (cond ((or (eq? stack-mode 'normal)
-                 (eq? stack-mode 'strict))
-             (if (null? stacks)
-                 (error "Uninitisalised stack controller stacks -- ASSEMBLER")
-                 (let ((stack (car stacks)))
-                   (if (eq? stack-mode 'normal)
-                       (stack-push stack value)
-                       (stack-push stack (cons register value))))))
-            ((eq? stack-mode 'per-register)
-             (let ((pair (assoc register stacks)))
-               (if pair
-                   (stack-push (cdr pair) value)
-                   (error "No stack for given register -- ASSEMBLER" register))))
-            (else
-             (error "Unknown stack mode -- ASSEMBLER" stack-mode))))
-    (define (pop register)
-      (cond ((or (eq? stack-mode 'normal)
-                 (eq? stack-mode 'strict))
-             (if (null? stacks)
-                 (error "Uninitisalised stack controller stacks -- ASSEMBLER")
-                 (let ((stack (car stacks)))
-                   (let ((val (stack-pop stack)))
-                     (if (eq? stack-mode 'normal)
-                         val
-                         (if (eq? register (car val))
-                             (cdr val)
-                             (error "Attempt to pop to an invalid register -- POP"
-                                    (list (list 'given register)
-                                          (list 'expected (car val))))))))))
-            ((eq? stack-mode 'per-register)
-             (let ((pair (assoc register stacks)))
-               (if pair
-                   (stack-pop (cdr pair))
-                   (error "No stack for given register -- POP" register))))
-            (else
-             (error "Unknown stack mode -- POP" stack-mode))))
-    (define (dispatch message)
-      (cond ((eq? message 'initialise) initialise)
-            ((eq? message 'push) push)
-            ((eq? message 'pop) pop)
-            (else
-             (error "Unknown message -- STACK-CONTROLLER" message))))
-    dispatch))
-
-(define (push stack-controller value register)
-  ((stack-controller 'push) value register))
-
-(define (pop stack-controller register)
-  ((stack-controller 'pop) register))
 
 ;;; Basic machine
 
@@ -141,14 +73,14 @@
 (define-public (get-register machine reg-name)
   ((machine 'get-register) reg-name))
 
-(define (make-new-machine stack-mode)
+(define (make-new-machine)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
-        (stack-controller (make-stack-controller stack-mode))
+        (stack (make-stack))
         (the-instruction-sequence '()))
     (let ((the-ops
            (list (list 'initialise-stack
-                       (lambda () (stack-controller 'initialise)))))
+                       (lambda () (stack 'initialise)))))
           (register-table
            (list (list 'pc pc)
                  (list 'flag flag))))
@@ -164,15 +96,6 @@
           (if val
               (cadr val)
               (error "Unknown register - LOOKUP-REGISTER" name))))
-      (define (initialise-stack-controller)
-        (let ((registers '()))
-          (for-each (lambda (table-entry)
-                      (let ((register (car table-entry)))
-                        (if (and (not (eq? register 'pc))
-                                 (not (eq? register 'flag)))
-                            (set! registers (cons register registers)))))
-                    register-table)
-          ((stack-controller 'initialise) registers)))
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
@@ -192,9 +115,8 @@
               ((eq? message 'install-operations)
                (lambda (ops)
                  (set! the-ops (append the-ops ops))))
-              ((eq? message 'stack-controller) stack-controller)
+              ((eq? message 'stack) stack)
               ((eq? message 'operations) the-ops)
-              ((eq? message 'initialise-stack-controller) (initialise-stack-controller))
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -227,13 +149,13 @@
 (define (update-insts! insts labels machine)
   (let ((pc (get-register machine 'pc))
         (flag (get-register machine 'flag))
-        (stack-controller (machine 'stack-controller))
+        (stack (machine 'stack))
         (ops (machine 'operations)))
     (for-each
      (lambda (inst)
        (set-instruction-execution-proc!
         inst
-        (make-execution-procedure (instruction-text inst) labels machine pc flag stack-controller ops)))
+        (make-execution-procedure (instruction-text inst) labels machine pc flag stack ops)))
      insts)
     insts))
 
@@ -260,7 +182,7 @@
 
 ;;; Execution procedures
 
-(define (make-execution-procedure inst labels machine pc flag stack-controller ops)
+(define (make-execution-procedure inst labels machine pc flag stack ops)
   (cond ((eq? (car inst) 'assign)
          (make-assign inst machine labels ops pc))
         ((eq? (car inst) 'test)
@@ -270,9 +192,9 @@
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels pc))
         ((eq? (car inst) 'save)
-         (make-save inst machine stack-controller pc))
+         (make-save inst machine stack pc))
         ((eq? (car inst) 'restore)
-         (make-restore inst machine stack-controller pc))
+         (make-restore inst machine stack pc))
         ((eq? (car inst) 'perform)
          (make-perform inst machine labels ops pc))
         (else
@@ -355,24 +277,22 @@
 
 ;;; Save
 
-(define (make-save inst machine stack-controller pc)
-  (let ((reg-name (stack-inst-reg-name inst)))
-    (let ((reg (get-register machine reg-name)))
-      (lambda ()
-        (push stack-controller (get-contents reg) reg-name)
-        (advance-pc pc)))))
+(define (make-save inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (push stack (get-contents reg))
+      (advance-pc pc))))
 
 (define (stack-inst-reg-name stack-instruction)
   (cadr stack-instruction))
 
 ;;; Restore
 
-(define (make-restore inst machine stack-controller pc)
-  (let ((reg-name (stack-inst-reg-name inst)))
-    (let ((reg (get-register machine reg-name)))
-      (lambda ()
-        (set-contents! reg (pop stack-controller reg-name))
-        (advance-pc pc)))))
+(define (make-restore inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (set-contents! reg (pop stack))
+      (advance-pc pc))))
 
 ;;; Perform
 
