@@ -88,4 +88,33 @@
   '(start
     (assign a (op +) (label start) (const 1)))))
 
+(let ((registers '(a b))
+      (ops '())
+      (text
+       '((assign a (const 0))
+         (assign b (const 1))
+         (save a)
+         (save b)
+         (restore a)
+         (restore b))))
+  (let ((machine
+         (make-machine registers ops text #:stack-mode 'normal)))
+    (start machine)
+    (test-assert
+        "Normal stack mode operates correctly"
+      (and (= (get-register-contents machine 'a) 1)
+           (= (get-register-contents machine 'b) 0))))
+  (let ((machine
+         (make-machine registers ops text #:stack-mode 'strict)))
+    (test-error
+     "Error popping to invalid register in strict stack mode"
+     (start machine)))
+  (let ((machine
+         (make-machine registers ops text #:stack-mode 'per-register)))
+    (start machine)
+    (test-assert
+        "Per-register stack mode operates correctly"
+      (and (= (get-register-contents machine 'a) 0)
+           (= (get-register-contents machine 'b) 1)))))
+
 (test-end "reg-machine-test")
