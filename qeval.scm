@@ -105,10 +105,23 @@
 
 (define qeval-dispatch-table (create-dispatch-table))
 
-(define filter-query-types '(lisp-value))
+(define filter-query-types '(not lisp-value unique))
 
-(define-public (qeval query frame-stream)
+(define (qeval query frame-stream)
+  (let ((results-stream (qeval-internal query frame-stream)))
+    (simple-stream-flatmap
+     (lambda (frame)
+       (let ((filtered-frame (apply-partial-filter-queries frame)))
+         (if filtered-frame
+             (singleton-stream filtered-frame)
+             stream-null)))
+     results-stream)))
+
+(define (qeval-internal query frame-stream)
   (let ((results-stream
+         ;; Delay 'filter' type queries to be executed as either as
+         ;; soon as all variables are available, or after all other
+         ;; queries have been processed.
          (if (member (type query) filter-query-types)
              (stream-map
               (lambda (frame)
@@ -118,16 +131,29 @@
                (if qproc
                    (qproc (contents query) frame-stream)
                    (simple-query query frame-stream))))))
-    ;; Apply filter queries where possible
     (simple-stream-flatmap
      (lambda (frame)
-       (let ((filtered-frame (apply-frame-filter-queries frame)))
+       (let ((filtered-frame (apply-completed-filter-queries frame)))
          (if filtered-frame
              (singleton-stream filtered-frame)
              stream-null)))
      results-stream)))
 
-(define (apply-frame-filter-queries frame)
+(define (apply-partial-filter-queries frame)
+  (define (go filter-queries frame)
+    (if (null? filter-queries)
+        frame
+        (let ((query (car filter-queries)))
+          (let ((qproc (dispatch-table-get qeval-dispatch-table (type query))))
+            (if qproc
+                (if (stream-null? (qproc (contents query) (singleton-stream frame)))
+                    #f
+                    (go (cdr filter-queries) frame))
+                (error "Unknown filter query -- APPLY-PARTIAL-FILTER-QUERIES" query))))))
+  (go (frame-filter-queries frame)
+      (make-frame (frame-bindings frame) '())))
+
+(define (apply-completed-filter-queries frame)
   (define (go filter-queries frame)
     (if (null? filter-queries)
         frame
@@ -143,7 +169,7 @@
                     (if (stream-null? (qproc (contents query) (singleton-stream frame)))
                         #f
                         (go (cdr filter-queries) frame))
-                    (error "Unknown filter query -- APPLY-FRAME-FILTER-QUERIES" query)))))
+                    (error "Unknown filter query -- APPLY-COMPLETED-FILTER-QUERIES" query)))))
           (lambda (key . args)
             (go (cdr filter-queries)
                 (frame-add-filter-query (car filter-queries) frame))))))
@@ -162,8 +188,8 @@
   (if (empty-conjunction? conjuncts)
       frame-stream
       (conjoin (rest-conjuncts conjuncts)
-               (qeval (first-conjunct conjuncts)
-                      frame-stream))))
+               (qeval-internal (first-conjunct conjuncts)
+                               frame-stream))))
 
 (dispatch-table-put! qeval-dispatch-table 'and conjoin)
 
@@ -171,7 +197,7 @@
   (if (empty-disjunction? disjuncts)
       stream-null
       (stream-interleave-delayed
-       (qeval (first-disjunct disjuncts) frame-stream)
+       (qeval-internal (first-disjunct disjuncts) frame-stream)
        (delay (disjoin (rest-disjuncts disjuncts)
                        frame-stream)))))
 
@@ -180,8 +206,8 @@
 (define (negate operands frame-stream)
   (simple-stream-flatmap
    (lambda (frame)
-     (if (stream-null? (qeval (negated-query operands)
-                              (singleton-stream frame)))
+     (if (stream-null? (qeval-internal (negated-query operands)
+                                       (singleton-stream frame)))
          (singleton-stream frame)
          stream-null))
    frame-stream))
@@ -191,7 +217,12 @@
 (define (lisp-value call frame-stream)
   (simple-stream-flatmap
    (lambda (frame)
-     (if (execute call)                 ; Assume fully-instantiated
+     (if (execute
+          (instantiate
+           call
+           frame
+           (lambda (v f)
+             (error "Unknown pat var -- LISP-VALUE" v))))
          (singleton-stream frame)
          stream-null))
    frame-stream))
@@ -209,8 +240,8 @@
 (define (uniquely-asserted exp frame-stream)
   (simple-stream-flatmap
    (lambda (frame)
-     (let ((results-stream (qeval (car exp)
-                                  (singleton-stream frame))))
+     (let ((results-stream (qeval-internal (car exp)
+                                           (singleton-stream frame))))
        (if (and (not (stream-null? results-stream))
                 (stream-null? (stream-cdr results-stream)))
            (singleton-stream frame)
@@ -263,8 +294,8 @@
                         query-frame)))
       (if (eq? unify-result 'failed)
           stream-null
-          (qeval (rule-body clean-rule)
-                 (singleton-stream unify-result))))))
+          (qeval-internal (rule-body clean-rule)
+                          (singleton-stream unify-result))))))
 
 (define (rename-variables-in rule)
   (let ((rule-application-id (new-rule-application-id)))

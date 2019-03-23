@@ -197,12 +197,12 @@
 (assert-query-results `(unique (job ?x ,computer-programmer))
                       '())
 
-(assert-query-results `(and (job ?boss ?j)
-                            (unique (supervisor ?person ?boss)))
-                      `((and (job ,eben ,chief-accountant)
-                             (unique (supervisor ?person ,eben)))
-                        (and (job ,alyssa ,computer-programmer)
-                             (unique (supervisor ?person ,alyssa)))))
+(assert-query-results `(and (unique (supervisor ?person ?boss))
+                            (job ?boss ?j))
+                      `((and (unique (supervisor ?person ,eben))
+                             (job ,eben ,chief-accountant))
+                        (and (unique (supervisor ?person ,alyssa))
+                             (job ,alyssa ,computer-programmer))))
 
 (test-begin "rules")
 
