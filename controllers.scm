@@ -80,4 +80,12 @@
     (goto (label there))
     there)))
 
+(test-error
+ "Throw error when label passed to operation expression"
+ (make-machine
+  '(a)
+  (list (list '+ +))
+  '(start
+    (assign a (op +) (label start) (const 1)))))
+
 (test-end "reg-machine-test")
