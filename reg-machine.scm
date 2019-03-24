@@ -1,6 +1,7 @@
 (define-module (sicp reg-machine))
 
-(use-modules (sicp eval-utils))
+(use-modules (sicp eval-utils)
+             (srfi srfi-1))
 
 (define-public (make-machine register-names ops controller-text)
   (let ((machine (make-new-machine)))
@@ -58,6 +59,73 @@
 (define (push stack value)
   ((stack 'push) value))
 
+;;; Machine stats
+
+(define (make-machine-stats)
+  (let ((instructions '())
+        (entry-registers '())
+        (stack-registers '())
+        (register-sources '()))
+    (define (initialise)
+      (display "Initialise called!")
+      (newline)
+      (set! instructions '())
+      (set! entry-registers '())
+      (set! stack-registers '())
+      (set! register-sources '()))
+    (define (add-instruction inst)
+      (set! instructions (lset-adjoin equal? instructions inst)))
+    (define (add-entry-register register)
+      (set! entry-registers (lset-adjoin eq? entry-registers register)))
+    (define (add-stack-register register)
+      (set! stack-registers (lset-adjoin eq? stack-registers register)))
+    (define (add-register-source register source)
+      (let ((val (assq register register-sources)))
+        (if val
+            (assq-set! register-sources))))
+    (define (print)
+      (display "Unique instructions:")
+      (newline)
+      (for-each (lambda (inst)
+                  (display inst)
+                  (newline))
+                instructions)
+      (newline)
+      (display "Registers holding entry points:")
+      (newline)
+      (for-each (lambda (register)
+                  (display register)
+                  (newline))
+                entry-registers)
+      (newline)
+      (display "Saved or restored registers:")
+      (newline)
+      (for-each (lambda (register)
+                  (display register)
+                  (newline))
+                stack-registers)
+      (newline))
+    (define (dispatch message)
+      (cond ((eq? message 'initialise) (initialise))
+            ((eq? message 'add-instruction) add-instruction)
+            ((eq? message 'add-entry-register) add-entry-register)
+            ((eq? message 'add-stack-register) add-stack-register)
+            ((eq? message 'print) (print))
+            (else (error "Unknown message -- MAKE-MACHINE-STATS" message))))
+    dispatch))
+
+(define (initialise-machine-stats stats)
+  (stats 'initialise))
+
+(define (add-instruction-stat stats inst)
+  ((stats 'add-instruction) inst))
+
+(define (add-entry-register-stat stats register)
+  ((stats 'add-entry-register) register))
+
+(define (add-stack-register-stat stats register)
+  ((stats 'add-stack-register) register))
+
 ;;; Basic machine
 
 (define-public (start machine)
@@ -77,7 +145,8 @@
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (stack (make-stack))
-        (the-instruction-sequence '()))
+        (the-instruction-sequence '())
+        (stats (make-machine-stats)))
     (let ((the-ops
            (list (list 'initialise-stack
                        (lambda () (stack 'initialise)))))
@@ -117,9 +186,13 @@
                  (set! the-ops (append the-ops ops))))
               ((eq? message 'stack) stack)
               ((eq? message 'operations) the-ops)
+              ((eq? message 'stats) stats)
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
+
+(define-public (print-stats machine)
+  ((machine 'stats) 'print))
 
 ;;; Assembler
 
@@ -150,12 +223,13 @@
   (let ((pc (get-register machine 'pc))
         (flag (get-register machine 'flag))
         (stack (machine 'stack))
-        (ops (machine 'operations)))
+        (ops (machine 'operations))
+        (stats (machine 'stats)))
     (for-each
      (lambda (inst)
        (set-instruction-execution-proc!
         inst
-        (make-execution-procedure (instruction-text inst) labels machine pc flag stack ops)))
+        (make-execution-procedure (instruction-text inst) labels machine pc flag stack ops stats)))
      insts)
     insts))
 
@@ -182,23 +256,26 @@
 
 ;;; Execution procedures
 
-(define (make-execution-procedure inst labels machine pc flag stack ops)
-  (cond ((eq? (car inst) 'assign)
-         (make-assign inst machine labels ops pc))
-        ((eq? (car inst) 'test)
-         (make-test inst machine labels ops flag pc))
-        ((eq? (car inst) 'branch)
-         (make-branch inst machine labels flag pc))
-        ((eq? (car inst) 'goto)
-         (make-goto inst machine labels pc))
-        ((eq? (car inst) 'save)
-         (make-save inst machine stack pc))
-        ((eq? (car inst) 'restore)
-         (make-restore inst machine stack pc))
-        ((eq? (car inst) 'perform)
-         (make-perform inst machine labels ops pc))
-        (else
-         (error "Unknown instruction type -- ASSEMBLE" inst))))
+(define (make-execution-procedure inst labels machine pc flag stack ops stats)
+  (let ((proc
+         (cond ((eq? (car inst) 'assign)
+                (make-assign inst machine labels ops pc))
+               ((eq? (car inst) 'test)
+                (make-test inst machine labels ops flag pc))
+               ((eq? (car inst) 'branch)
+                (make-branch inst machine labels flag pc))
+               ((eq? (car inst) 'goto)
+                (make-goto inst machine labels pc stats))
+               ((eq? (car inst) 'save)
+                (make-save inst machine stack pc stats))
+               ((eq? (car inst) 'restore)
+                (make-restore inst machine stack pc stats))
+               ((eq? (car inst) 'perform)
+                (make-perform inst machine labels ops pc))
+               (else
+                (error "Unknown instruction type -- ASSEMBLE" inst)))))
+    (add-instruction-stat stats inst)
+    proc))
 
 (define (advance-pc pc)
   (set-contents! pc (cdr (get-contents pc))))
@@ -256,7 +333,7 @@
 
 ;;; GOTO
 
-(define (make-goto inst machine labels pc)
+(define (make-goto inst machine labels pc stats)
   (let ((dest (goto-dest inst)))
     (cond ((label-exp? dest)
            (let ((insts
@@ -265,10 +342,12 @@
              (lambda ()
                (set-contents! pc insts))))
           ((register-exp? dest)
-           (let ((reg
-                  (get-register machine (register-exp-reg dest))))
-             (lambda ()
-               (set-contents! pc (get-contents reg)))))
+           (let ((reg-name (register-exp-reg dest)))
+             (let ((reg
+                    (get-register machine reg-name)))
+               (add-entry-register-stat stats reg-name)
+               (lambda ()
+                 (set-contents! pc (get-contents reg))))))
           (else
            (error "Bad GOTO instruction -- ASSEMBLE" inst)))))
 
@@ -277,22 +356,26 @@
 
 ;;; Save
 
-(define (make-save inst machine stack pc)
-  (let ((reg (get-register machine (stack-inst-reg-name inst))))
-    (lambda ()
-      (push stack (get-contents reg))
-      (advance-pc pc))))
+(define (make-save inst machine stack pc stats)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register machine reg-name)))
+      (add-stack-register-stat stats reg-name)
+      (lambda ()
+        (push stack (get-contents reg))
+        (advance-pc pc)))))
 
 (define (stack-inst-reg-name stack-instruction)
   (cadr stack-instruction))
 
 ;;; Restore
 
-(define (make-restore inst machine stack pc)
-  (let ((reg (get-register machine (stack-inst-reg-name inst))))
-    (lambda ()
-      (set-contents! reg (pop stack))
-      (advance-pc pc))))
+(define (make-restore inst machine stack pc stats)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register machine reg-name)))
+      (add-stack-register-stat stats reg-name)
+      (lambda ()
+        (set-contents! reg (pop stack))
+        (advance-pc pc)))))
 
 ;;; Perform
 
