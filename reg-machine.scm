@@ -80,9 +80,10 @@
     (define (add-stack-register register)
       (set! stack-registers (lset-adjoin eq? stack-registers register)))
     (define (add-register-source register source)
-      (let ((val (assq register register-sources)))
-        (if val
-            (assq-set! register-sources))))
+      (let ((sources (assq register register-sources)))
+        (if sources
+            (assq-set! register-sources register (lset-adjoin equal? (cdr sources) source))
+            (set! register-sources (acons register source register-sources)))))
     (define (print)
       (display "Unique instructions:")
       (newline)
@@ -104,12 +105,26 @@
                   (display register)
                   (newline))
                 stack-registers)
+      (newline)
+      (display "Register sources:")
+      (newline)
+      (for-each (lambda (pair)
+                  (display (car pair))
+                  (newline)
+                  (for-each (lambda (source)
+                              (display (car source))
+                              (newline))
+                            (cdr pair))
+                  (newline))
+                register-sources)
       (newline))
     (define (dispatch message)
       (cond ((eq? message 'initialise) (initialise))
             ((eq? message 'add-instruction) add-instruction)
             ((eq? message 'add-entry-register) add-entry-register)
             ((eq? message 'add-stack-register) add-stack-register)
+            ((eq? message 'add-register-source) add-register-source)
+            ((eq? message 'register-sources) register-sources)
             ((eq? message 'print) (print))
             (else (error "Unknown message -- MAKE-MACHINE-STATS" message))))
     dispatch))
@@ -125,6 +140,9 @@
 
 (define (add-stack-register-stat stats register)
   ((stats 'add-stack-register) register))
+
+(define (add-register-source! stats register source)
+  ((stats 'add-register-source) register source))
 
 ;;; Basic machine
 
@@ -259,7 +277,7 @@
 (define (make-execution-procedure inst labels machine pc flag stack ops stats)
   (let ((proc
          (cond ((eq? (car inst) 'assign)
-                (make-assign inst machine labels ops pc))
+                (make-assign inst machine labels ops pc stats))
                ((eq? (car inst) 'test)
                 (make-test inst machine labels ops flag pc))
                ((eq? (car inst) 'branch)
@@ -282,17 +300,19 @@
 
 ;;; Assign
 
-(define (make-assign inst machine labels operations pc)
-  (let ((target
-         (get-register machine (assign-reg-name inst)))
-        (value-exp (assign-value-exp inst)))
-    (let ((value-proc
-           (if (operation-exp? value-exp)
-               (make-operation-exp value-exp machine labels operations)
-               (make-primitive-exp (car value-exp) machine labels))))
-      (lambda ()
-        (set-contents! target (value-proc))
-        (advance-pc pc)))))
+(define (make-assign inst machine labels operations pc stats)
+  (let ((reg-name (assign-reg-name inst)))
+    (let ((target
+           (get-register machine reg-name))
+          (value-exp (assign-value-exp inst)))
+      (let ((value-proc
+             (if (operation-exp? value-exp)
+                 (make-operation-exp value-exp machine labels operations)
+                 (make-primitive-exp (car value-exp) machine labels))))
+        (add-register-source! stats reg-name (list value-exp))
+        (lambda ()
+          (set-contents! target (value-proc))
+          (advance-pc pc))))))
 
 (define (assign-reg-name assign-instruction)
   (cadr assign-instruction))
