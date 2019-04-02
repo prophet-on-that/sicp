@@ -112,7 +112,7 @@
                   (display (car pair))
                   (newline)
                   (for-each (lambda (source)
-                              (display (car source))
+                              (display source)
                               (newline))
                             (cdr pair))
                   (newline))
