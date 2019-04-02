@@ -56,7 +56,8 @@
     (define (print-statistics)
       (newline)
       (display (list 'total-pushes '= number-pushes
-                     'maximum-depth '= max-depth)))
+                     'maximum-depth '= max-depth))
+      (newline))
     (define (dispatch message)
       (cond ((eq? message 'push) push)
             ((eq? message 'pop) (pop))
@@ -181,7 +182,12 @@
            (list (list 'initialise-stack
                        (lambda () (stack 'initialise)))
                  (list 'print-stack-statistics
-                       (lambda () (stack 'print-statistics)))))
+                       (lambda () (stack 'print-statistics)))
+                 (list 'read read)
+                 (list 'print
+                       (lambda (val)
+                         (display val)
+                         (newline)))))
           (register-table
            (list (list 'pc pc)
                  (list 'flag flag))))
