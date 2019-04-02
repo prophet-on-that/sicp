@@ -3,11 +3,8 @@
 (use-modules (sicp eval-utils)
              (srfi srfi-1))
 
-(define-public (make-machine register-names ops controller-text)
+(define-public (make-machine ops controller-text)
   (let ((machine (make-new-machine)))
-    (for-each (lambda (register-name)
-                ((machine 'allocate-register) register-name))
-              register-names)
     ((machine 'install-operations) ops)
     ((machine 'install-instruction-sequence)
      (assemble controller-text machine))
@@ -205,12 +202,18 @@
               ((eq? message 'stack) stack)
               ((eq? message 'operations) the-ops)
               ((eq? message 'stats) stats)
+              ((eq? message 'register-table) register-table)
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
 
 (define-public (print-stats machine)
   ((machine 'stats) 'print))
+
+(define-public (allocate-register machine reg-name)
+  (let ((register-table (machine 'register-table)))
+    (if (not (assoc reg-name register-table))
+        ((machine 'allocate-register) reg-name))))
 
 ;;; Assembler
 
@@ -302,6 +305,7 @@
 
 (define (make-assign inst machine labels operations pc stats)
   (let ((reg-name (assign-reg-name inst)))
+    (allocate-register machine reg-name)
     (let ((target
            (get-register machine reg-name))
           (value-exp (assign-value-exp inst)))
@@ -363,6 +367,7 @@
                (set-contents! pc insts))))
           ((register-exp? dest)
            (let ((reg-name (register-exp-reg dest)))
+             (allocate-register machine reg-name)
              (let ((reg
                     (get-register machine reg-name)))
                (add-entry-register-stat stats reg-name)
@@ -378,6 +383,7 @@
 
 (define (make-save inst machine stack pc stats)
   (let ((reg-name (stack-inst-reg-name inst)))
+    (allocate-register machine reg-name)
     (let ((reg (get-register machine reg-name)))
       (add-stack-register-stat stats reg-name)
       (lambda ()
@@ -393,6 +399,7 @@
   (let ((reg-name (stack-inst-reg-name inst)))
     (let ((reg (get-register machine reg-name)))
       (add-stack-register-stat stats reg-name)
+      (allocate-register machine reg-name)
       (lambda ()
         (set-contents! reg (pop stack))
         (advance-pc pc)))))
@@ -423,10 +430,11 @@
                               (label-exp-label exp))))
            (lambda () insts)))
         ((register-exp? exp)
-         (let ((r (get-register machine
-                                (register-exp-reg exp))))
-           (lambda ()
-             (get-contents r))))
+         (let ((reg-name (register-exp-reg exp)))
+           (allocate-register machine reg-name)
+           (let ((r (get-register machine reg-name)))
+             (lambda ()
+               (get-contents r)))))
         (else
          (error "Unknown expression type -- ASSEMBLE" exp))))
 

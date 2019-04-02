@@ -7,7 +7,6 @@
 
 (define gcd-machine
   (make-machine
-   '(a b t)
    (list (list 'rem remainder)
          (list '= =))
    '(test-b
@@ -23,7 +22,6 @@
 
 (define factorial-machine
   (make-machine
-   '(n val continue)
    (list (list '- -)
          (list '= =)
          (list '* *))
@@ -68,7 +66,6 @@
 (test-error
  "Throw error on duplicate labels"
  (make-machine
-  '(a)
   '()
   '(start
     (goto (label here))
@@ -83,7 +80,6 @@
 (test-error
  "Throw error when label passed to operation expression"
  (make-machine
-  '(a)
   (list (list '+ +))
   '(start
     (assign a (op +) (label start) (const 1)))))
