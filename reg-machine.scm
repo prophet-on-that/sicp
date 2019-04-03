@@ -212,6 +212,10 @@
               (begin
                 (if trace
                     (begin
+                      (if (instruction-label (car insts))
+                          (begin
+                            (display (instruction-label (car insts)))
+                            (newline)))
                       (display (instruction-text (car insts)))
                       (newline)))
                 ((instruction-execution-proc (car insts)))
@@ -263,15 +267,15 @@
 
 (define (assemble controller-text machine)
   (extract-labels controller-text
-                  (lambda (insts labels)
+                  (lambda (insts labels prev-label)
                     (update-insts! insts labels machine)
                     insts)))
 
 (define (extract-labels text receive)
   (if (null? text)
-      (receive '() '())
+      (receive '() '() #f)
       (extract-labels (cdr text)
-                      (lambda (insts labels)
+                      (lambda (insts labels prev-label)
                         (let ((next-inst (car text)))
                           (if (symbol? next-inst)
                               (if (assoc next-inst labels)
@@ -279,10 +283,11 @@
                                   (receive
                                       insts
                                       (cons (make-label-entry next-inst insts)
-                                            labels)))
+                                            labels)
+                                    next-inst))
                               (receive
-                                  (cons (make-instruction next-inst) insts)
-                                  labels)))))))
+                                  (cons (make-instruction next-inst prev-label) insts)
+                                  labels #f)))))))
 
 (define (update-insts! insts labels machine)
   (let ((pc (get-register machine 'pc))
@@ -298,17 +303,20 @@
      insts)
     insts))
 
-(define (make-instruction text)
-  (cons text '()))
+(define (make-instruction text label)
+  (list text '() label))
 
 (define (instruction-text inst)
   (car inst))
 
 (define (instruction-execution-proc inst)
-  (cdr inst))
+  (cadr inst))
+
+(define (instruction-label inst)
+  (caddr inst))
 
 (define (set-instruction-execution-proc! inst proc)
-  (set-cdr! inst proc))
+  (set-car! (cdr inst) proc))
 
 (define (make-label-entry label-name insts)
   (cons label-name insts))
