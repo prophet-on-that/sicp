@@ -248,7 +248,7 @@
 (define-public (print-stats machine)
   ((machine 'stats) 'print))
 
-(define-public (allocate-register machine reg-name)
+(define (allocate-register machine reg-name)
   (let ((register-table (machine 'register-table)))
     (if (not (assoc reg-name register-table))
         ((machine 'allocate-register) reg-name))))
