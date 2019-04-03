@@ -178,7 +178,8 @@
         (stack (make-stack))
         (the-instruction-sequence '())
         (stats (make-machine-stats))
-        (executed-instruction-count 0))
+        (executed-instruction-count 0)
+        (trace #f))
     (let ((the-ops
            (list (list 'initialise-stack
                        (lambda () (stack 'initialise)))
@@ -209,6 +210,10 @@
           (if (null? insts)
               'done
               (begin
+                (if trace
+                    (begin
+                      (display (instruction-text (car insts)))
+                      (newline)))
                 ((instruction-execution-proc (car insts)))
                 (set! executed-instruction-count (+ executed-instruction-count 1))
                 (execute)))))
@@ -234,6 +239,8 @@
               ((eq? message 'register-table) register-table)
               ((eq? message 'print-executed-instruction-count)
                (print-executed-instruction-count))
+              ((eq? message 'trace-on) (set! trace #t))
+              ((eq? message 'trace-off) (set! trace #f))
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -245,6 +252,12 @@
   (let ((register-table (machine 'register-table)))
     (if (not (assoc reg-name register-table))
         ((machine 'allocate-register) reg-name))))
+
+(define-public (trace-on machine)
+  (machine 'trace-on))
+
+(define-public (trace-off machine)
+  (machine 'trace-off))
 
 ;;; Assembler
 
