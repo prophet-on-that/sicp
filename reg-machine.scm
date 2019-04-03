@@ -177,7 +177,8 @@
         (flag (make-register 'flag))
         (stack (make-stack))
         (the-instruction-sequence '())
-        (stats (make-machine-stats)))
+        (stats (make-machine-stats))
+        (executed-instruction-count 0))
     (let ((the-ops
            (list (list 'initialise-stack
                        (lambda () (stack 'initialise)))
@@ -209,7 +210,12 @@
               'done
               (begin
                 ((instruction-execution-proc (car insts)))
+                (set! executed-instruction-count (+ executed-instruction-count 1))
                 (execute)))))
+      (define (print-executed-instruction-count)
+        (display executed-instruction-count)
+        (newline)
+        (set! executed-instruction-count 0))
       (define (dispatch message)
         (cond ((eq? message 'start)
                (set-contents! pc the-instruction-sequence)
@@ -226,6 +232,8 @@
               ((eq? message 'operations) the-ops)
               ((eq? message 'stats) stats)
               ((eq? message 'register-table) register-table)
+              ((eq? message 'print-executed-instruction-count)
+               (print-executed-instruction-count))
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
