@@ -13,11 +13,21 @@
 ;;; Registers
 
 (define (make-register name)
-  (let ((contents '*unassigned*))
+  (let ((contents '*unassigned*)
+        (trace #f))
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set)
-             (lambda (value) (set! contents value)))
+             (lambda (value)
+               (if trace
+                   (begin
+                     (display (list 'register name
+                                    'old-value contents
+                                    'new-value value))
+                     (newline)))
+               (set! contents value)))
+            ((eq? message 'set-trace!)
+             (lambda (t) (set! trace t)))
             (else
              (error "Unknown request -- REGISTER" message))))
     dispatch))
@@ -225,6 +235,8 @@
         (display executed-instruction-count)
         (newline)
         (set! executed-instruction-count 0))
+      (define (set-register-trace! reg-name value)
+        (((lookup-register reg-name) 'set-trace!) value))
       (define (dispatch message)
         (cond ((eq? message 'start)
                (set-contents! pc the-instruction-sequence)
@@ -245,6 +257,7 @@
                (print-executed-instruction-count))
               ((eq? message 'trace-on) (set! trace #t))
               ((eq? message 'trace-off) (set! trace #f))
+              ((eq? message 'set-register-trace!) set-register-trace!)
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -262,6 +275,9 @@
 
 (define-public (trace-off machine)
   (machine 'trace-off))
+
+(define-public (set-register-trace! machine reg-name value)
+  ((machine 'set-register-trace!) reg-name value))
 
 ;;; Assembler
 
