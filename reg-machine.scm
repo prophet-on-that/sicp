@@ -167,6 +167,17 @@
 (define (add-register-source! stats register source)
   ((stats 'add-register-source) register source))
 
+;;; Breakpoints
+
+(define (make-breakpoint label offset)
+  (cons label offset))
+
+(define (breakpoint-label bp)
+  (car bp))
+
+(define (breakpoint-offset bp)
+  (cdr bp))
+
 ;;; Basic machine
 
 (define-public (start machine)
@@ -189,7 +200,8 @@
         (the-instruction-sequence '())
         (stats (make-machine-stats))
         (executed-instruction-count 0)
-        (trace #f))
+        (trace #f)
+        (breakpoints '()))
     (let ((the-ops
            (list (list 'initialise-stack
                        (lambda () (stack 'initialise)))
@@ -219,25 +231,51 @@
         (let ((insts (get-contents pc)))
           (if (null? insts)
               'done
-              (begin
+              (let ((next-inst (car insts)))
                 (if trace
                     (begin
-                      (if (and (instruction-label (car insts))
-                               (= (instruction-label-offset (car insts)) 1))
+                      (if (and (instruction-label next-inst)
+                               (= (instruction-label-offset next-inst) 1))
                           (begin
-                            (display (instruction-label (car insts)))
+                            (display (instruction-label next-inst))
                             (newline)))
-                      (display (instruction-text (car insts)))
+                      (display (instruction-text next-inst))
                       (newline)))
-                ((instruction-execution-proc (car insts)))
-                (set! executed-instruction-count (+ executed-instruction-count 1))
-                (execute)))))
+                (if (find (lambda (bp)
+                            (and (eq? (breakpoint-label bp) (instruction-label next-inst))
+                                 (= (breakpoint-offset bp) (instruction-label-offset next-inst))))
+                          breakpoints)
+                    'break
+                    (proceed))))))
+
+      ;; Pre: (not (null? (get-contents pc)))
+      (define (proceed)
+        (let ((next-inst (car (get-contents pc))))
+          ((instruction-execution-proc next-inst))
+          (set! executed-instruction-count (+ executed-instruction-count 1))
+          (execute)))
+
       (define (print-executed-instruction-count)
         (display executed-instruction-count)
         (newline)
         (set! executed-instruction-count 0))
       (define (set-register-trace! reg-name value)
         (((lookup-register reg-name) 'set-trace!) value))
+
+      (define (set-breakpoint label offset)
+        (set! breakpoints (cons (make-breakpoint label offset)
+                                breakpoints)))
+
+      (define (cancel-breakpoint label offset)
+        (set! breakpoints
+              (filter (lambda (bp)
+                        (not (and (eq? (breakpoint-label bp) label)
+                                  (= (breakpoint-offset bp) offset))))
+                      breakpoints)))
+
+      (define (cancel-all-breakpoints)
+        (set! breakpoints '()))
+
       (define (dispatch message)
         (cond ((eq? message 'start)
                (set-contents! pc the-instruction-sequence)
@@ -259,6 +297,10 @@
               ((eq? message 'trace-on) (set! trace #t))
               ((eq? message 'trace-off) (set! trace #f))
               ((eq? message 'set-register-trace!) set-register-trace!)
+              ((eq? message 'set-breakpoint) set-breakpoint)
+              ((eq? message 'cancel-breakpoint) cancel-breakpoint)
+              ((eq? message 'cancel-all-breakpoints) (cancel-all-breakpoints))
+              ((eq? message 'proceed) (proceed))
               (else
                (error "Unknown request -- MACHINE" message))))
       dispatch)))
@@ -279,6 +321,18 @@
 
 (define-public (set-register-trace! machine reg-name value)
   ((machine 'set-register-trace!) reg-name value))
+
+(define-public (set-breakpoint machine label offset)
+  ((machine 'set-breakpoint) label offset))
+
+(define-public (cancel-breakpoint machine label offset)
+  ((machine 'cancel-breakpoint) label offset))
+
+(define-public (cancel-all-breakpoints machine)
+  (machine 'cancel-all-breakpoints))
+
+(define-public (proceed machine)
+  (machine 'proceed))
 
 ;;; Assembler
 
