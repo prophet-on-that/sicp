@@ -222,7 +222,8 @@
               (begin
                 (if trace
                     (begin
-                      (if (instruction-label (car insts))
+                      (if (and (instruction-label (car insts))
+                               (= (instruction-label-offset (car insts)) 1))
                           (begin
                             (display (instruction-label (car insts)))
                             (newline)))
@@ -284,17 +285,19 @@
 (define (assemble controller-text machine)
   (extract-labels controller-text
                   #f
+                  1
                   (lambda (insts labels)
                     (update-insts! insts labels machine)
                     insts)))
 
-(define (extract-labels text prev-label receive)
+(define (extract-labels text prev-label label-offset receive)
   (if (null? text)
       (receive '() '())
       (let ((next-inst (car text)))
         (if (symbol? next-inst)
             (extract-labels (cdr text)
                             next-inst
+                            1
                             (lambda (insts labels)
                               (if (assoc next-inst labels)
                                   (error "Label already seen -- ASSEMBLE" next-inst)
@@ -303,10 +306,11 @@
                                       (cons (make-label-entry next-inst insts)
                                             labels)))))
             (extract-labels (cdr text)
-                            #f
+                            prev-label
+                            (1+ label-offset)
                             (lambda (insts labels)
                               (receive
-                                  (cons (make-instruction next-inst prev-label)
+                                  (cons (make-instruction next-inst prev-label label-offset)
                                         insts)
                                   labels)))))))
 
@@ -324,8 +328,8 @@
      insts)
     insts))
 
-(define (make-instruction text label)
-  (list text '() label))
+(define (make-instruction text label label-offset)
+  (list text '() label label-offset))
 
 (define (instruction-text inst)
   (car inst))
@@ -335,6 +339,9 @@
 
 (define (instruction-label inst)
   (caddr inst))
+
+(define (instruction-label-offset inst)
+  (cadddr inst))
 
 (define (set-instruction-execution-proc! inst proc)
   (set-car! (cdr inst) proc))
