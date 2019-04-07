@@ -283,27 +283,32 @@
 
 (define (assemble controller-text machine)
   (extract-labels controller-text
-                  (lambda (insts labels prev-label)
+                  #f
+                  (lambda (insts labels)
                     (update-insts! insts labels machine)
                     insts)))
 
-(define (extract-labels text receive)
+(define (extract-labels text prev-label receive)
   (if (null? text)
-      (receive '() '() #f)
-      (extract-labels (cdr text)
-                      (lambda (insts labels prev-label)
-                        (let ((next-inst (car text)))
-                          (if (symbol? next-inst)
+      (receive '() '())
+      (let ((next-inst (car text)))
+        (if (symbol? next-inst)
+            (extract-labels (cdr text)
+                            next-inst
+                            (lambda (insts labels)
                               (if (assoc next-inst labels)
                                   (error "Label already seen -- ASSEMBLE" next-inst)
                                   (receive
                                       insts
                                       (cons (make-label-entry next-inst insts)
-                                            labels)
-                                    next-inst))
+                                            labels)))))
+            (extract-labels (cdr text)
+                            #f
+                            (lambda (insts labels)
                               (receive
-                                  (cons (make-instruction next-inst prev-label) insts)
-                                  labels #f)))))))
+                                  (cons (make-instruction next-inst prev-label)
+                                        insts)
+                                  labels)))))))
 
 (define (update-insts! insts labels machine)
   (let ((pc (get-register machine 'pc))
