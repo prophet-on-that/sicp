@@ -215,6 +215,7 @@
           (register-table
            (list (list 'pc pc)
                  (list 'flag flag))))
+
       (define (allocate-register name)
         (if (assoc name register-table)
             (error "Register defined multiple times -- ALLOCATE-REGISTER" name)
@@ -222,11 +223,13 @@
                   (cons (list name (make-register name))
                         register-table)))
         'register-allocated)
+
       (define (lookup-register name)
         (let ((val (assoc name register-table)))
           (if val
               (cadr val)
               (error "Unknown register - LOOKUP-REGISTER" name))))
+
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
@@ -259,6 +262,7 @@
         (display executed-instruction-count)
         (newline)
         (set! executed-instruction-count 0))
+
       (define (set-register-trace! reg-name value)
         (((lookup-register reg-name) 'set-trace!) value))
 
