@@ -59,3 +59,64 @@
  (goto (label test-counter))
  expt-done)
 
+;;; Exercise 5.21
+
+(controller
+ (assign continue (label count-leaves-done))
+ test-tree
+ (test (op null?) (reg tree))
+ (branch (label null-tree))
+ (test (op pair?) (reg tree))
+ (branch (label recurse-1))
+ (assign count (const 1))
+ null-tree
+ (assign count (const 1))
+ (goto (reg continue))
+ (goto (reg continue))
+ recurse-1
+ (save continue)
+ (save tree)
+ (assign continue (label after-recurse-1))
+ (assign tree (op car) (reg tree))
+ (goto (label test-tree))
+ after-recurse-1
+ (restore tree)
+ (save count)
+ (assign tree (op cdr) (reg tree))
+ (assign continue (label after-recurse-2))
+ (goto (label test-tree))
+ after-recurse-2
+ (assign count-tmp (reg count))
+ (restore count)
+ (restore continue)
+ (assign count (op +) (reg count) (reg counnt-tmp))
+ (goto (reg continue))
+ count-leaves-done
+ )
+
+;;; Ex. 5.21 b
+
+(controller
+ (assign (reg count) 0)
+ (assign continue (label count-leaves-done))
+ test-tree
+ (test (op null?) (reg tree))
+ (branch (label null-tree))
+ (test (op pair?) (reg tree))
+ (branch (label recurse))
+ (assign count (op +) (reg count) (const 1))
+ (goto (reg continue))
+ recurse
+ (save tree)
+ (save continue)
+ (assign tree (op car) (reg tree))
+ (assign continue (label after-recurse))
+ (goto (label test-tree))
+ after-recurse
+ (restore continue)
+ (restore tree)
+ (assign tree (op cdr) (reg tree))
+ (goto (label test-tree))
+ null-tree
+ (goto (reg continue))
+ count-leaves-done)
