@@ -97,7 +97,7 @@
 ;;; Ex. 5.21 b
 
 (controller
- (assign (reg count) 0)
+ (assign count 0)
  (assign continue (label count-leaves-done))
  test-tree
  (test (op null?) (reg tree))
