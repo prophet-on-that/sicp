@@ -120,3 +120,42 @@
  null-tree
  (goto (reg continue))
  count-leaves-done)
+
+;;; Ex. 5.22 a
+
+(controller
+ ;; append xs ys
+ (assign continue (label append-done))
+ test-list
+ (test (op null?) (reg xs))
+ (branch (label null-list))
+ (save xs)
+ (save continue)
+ (assign xs (op cdr) (reg xs))
+ (assign continue (label after-recurse))
+ (goto (label test-list))
+ after-recurse
+ (assign tmp (reg xs))                  ; Could potentially use register ys here
+ (restore continue)
+ (restore xs)
+ (assign xs (op car) (reg xs))
+ (assign xs (op cons) (reg xs) (reg tmp))
+ (goto (reg continue))
+ ;; TODO
+ null-list
+ (assign xs (reg ys))
+ (goto (reg continue))
+ append-done)
+
+;;; Ex. 5.22 b
+
+(controller
+ ;; append! xs ys
+ test-list
+ (assign tmp (op cdr) (reg xs))
+ (test (op null?) (reg tmp))
+ (branch (label null-cdr))
+ (assign xs tmp)
+ (goto (label test-list))
+ null-cdr
+ (perform (op set-cdr!) (reg xs) (reg yx)))
