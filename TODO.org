@@ -1,0 +1,64 @@
+* Debugging internal defines
+  - Work out why the following isn't working:
+    #+BEGIN_SRC scm
+    (eval (let ((a '*undefined*)
+          (b '*undefined))
+      (set a b)
+      (set b 1)
+      (cons a b) (setup-environment)
+    #+END_SRC
+    Look at let->combination of this.
+* Register machine
+  - Introduce typed pointer representation
+    - These will never be contructed directly by the assembly program,
+      but will be constructed in the assembler by operations such as
+      ~const~ and ~cons~.
+    - Types:
+      - Empty list
+      - Integer
+      - Pair
+      - Symbol
+  - Symbol handling
+    - Need to intern symbols when first encountered
+    - Read must also intern symbols
+    - Introduce symbol table for this
+  - ~read~ is a primitive provided by the machine, which should read
+    from the standard input, intern symbols and create a list, leaving
+    the pair in the given register argument.
+  - ~print~ is an operation of the machine which will print the
+    representation of whatever is in the given register.
+  - Machine interface:
+    - registers:
+      - whatever is requested
+    - memory blocks/vectors (all of fixed size):
+      - stack
+      - the-cars
+      - the-cdrs
+      - new-cars
+      - new-cdrs
+      Could provide ability to declare vectors and their sizes as
+      parameters to the machine.
+    - operations:
+      - read
+      - print
+      - vector-ref
+      - vector-set
+      - max number of pairs (to trigger garbage collection)
+      - arithmetic
+        - +
+        - *
+        - -
+        - /
+      - symbol->string and string->symbol (require char type)
+    - special forms:
+      - save
+      - restore
+      - assign
+      - perform
+      - test
+      - branch
+      - goto
+    - If we decided to not have the machine be aware of the typed
+      pointer representation, ~read~ and ~print~ couldn't be
+      implemented.
+
