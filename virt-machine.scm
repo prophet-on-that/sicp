@@ -51,7 +51,8 @@
         (instruction-sequence '())
         (ops (list
               (list '+ +)
-              (list '- -))))
+              (list '- -)
+              (list '= =))))
 
     (define (start)
       (set-register-contents! pc instruction-sequence)
@@ -181,8 +182,8 @@
 (define (make-execution-procedure inst machine labels)
   (cond ((eq? (car inst) 'assign)
          (make-assign inst machine labels))
-        ;; ((eq? (car inst) 'test)
-        ;;  #f)
+        ((eq? (car inst) 'test)
+         (make-test inst machine labels))
         ;; ((eq? (car inst) 'branch)
         ;;  #f)
         ;; ((eq? (car inst) 'goto)
@@ -287,6 +288,22 @@
         (cadr val)
         (error "Unknown operation -- ASSEMBLE" symbol))))
 
+;;; Test
+
+(define (make-test inst machine labels)
+  (let ((condition (test-condition inst)))
+    (if (operation-exp? condition)
+        (let ((condition-proc
+               (make-operation-exp condition machine labels))
+              (flag (get-machine-flag machine)))
+          (lambda ()
+            (set-register-contents! flag (if (condition-proc) 1 0))
+            (advance-pc machine)))
+        (error "Bad TEST instruction -- ASSEMBLE" inst))))
+
+(define (test-condition test-instruction)
+  (cdr test-instruction))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -350,5 +367,19 @@
                                      (assign 1 (op +) (reg 0) (const 2))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 3))
+
+;;; Test test instruction: true
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (const 1))
+                                     (test (op =) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-flag machine)) 1))
+
+;;; Test test instruction: false
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (const 0))
+                                     (test (op =) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-flag machine)) 0))
 
 (test-end "virt-machine-test")
