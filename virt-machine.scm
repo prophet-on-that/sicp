@@ -117,7 +117,7 @@
   (machine 'get-memory))
 
 (define (get-machine-ops machine)
-  ((machine 'get-ops)))
+  (machine 'get-ops))
 
 ;;; Assembler
 
@@ -261,7 +261,7 @@
 ;;; Operation expressions
 
 (define (make-operation-exp exp machine labels)
-  (let ((op (lookup-prim (operation-exp-op exp) (get-machine-ops machine)))
+  (let ((op (lookup-machine-prim machine (operation-exp-op exp)))
         (aprocs
          (map (lambda (e)
                 (if (label-exp? e)
@@ -280,8 +280,8 @@
 (define (operation-exp-operands operation-exp)
   (cdr operation-exp))
 
-(define (lookup-prim symbol operations)
-  (let ((val (assoc symbol operations)))
+(define (lookup-machine-prim machine symbol)
+  (let ((val (assoc symbol (get-machine-ops machine))))
     (if val
         (cadr val)
         (error "Unknown operation -- ASSEMBLE" symbol))))
@@ -328,5 +328,26 @@
   (let ((insts (get-register-contents (get-machine-register machine 0))))
     (test-assert (and (pair? insts)
                       (= (length insts) 1)))))
+
+;;; Test constant operator assignment
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (op +) (const 1) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 2))
+
+;;; Test register operator assignment
+(let ((machine
+       (make-machine-load-text 3 0 '((assign 0 (const 1))
+                                     (assign 1 (const 2))
+                                     (assign 2 (op +) (reg 0) (reg 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 2)) 3))
+
+;;; Test const and register operator assignment
+(let ((machine
+       (make-machine-load-text 2 0 '((assign 0 (const 1))
+                                     (assign 1 (op +) (reg 0) (const 2))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 1)) 3))
 
 (test-end "virt-machine-test")
