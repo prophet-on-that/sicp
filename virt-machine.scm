@@ -200,8 +200,9 @@
         (else
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
-(define (advance-pc pc)
-  (set-register-contents! pc (cdr (get-register-contents pc))))
+(define (advance-pc machine)
+  (let ((pc (get-machine-pc machine)))
+    (set-register-contents! pc (cdr (get-register-contents pc)))))
 
 (define (make-assign inst machine labels)
   (let ((reg-name (assign-reg-name inst)))
@@ -213,7 +214,7 @@
                  (make-primitive-exp (car value-exp) machine labels))))
         (lambda ()
           (set-register-contents! target (value-proc))
-          (advance-pc (get-machine-pc machine)))))))
+          (advance-pc machine))))))
 
 (define (assign-reg-name assign-instruction)
   (cadr assign-instruction))
