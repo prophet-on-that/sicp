@@ -186,6 +186,8 @@
          (make-test inst machine labels))
         ((eq? (car inst) 'jez)
          (make-jez inst machine labels))
+        ((eq? (car inst) 'jne)
+         (make-jne inst machine labels))
         ;; ((eq? (car inst) 'branch)
         ;;  #f)
         ;; ((eq? (car inst) 'goto)
@@ -324,6 +326,23 @@
 (define (jez-dest inst)
   (cadr inst))
 
+;;; Jne
+
+(define (make-jne inst machine labels)
+  (let ((dest (jne-dest inst)))
+    (if (label-exp? dest)
+        (let ((insts (lookup-label labels (label-exp-label dest)))
+              (flag (get-machine-flag machine))
+              (pc (get-machine-pc machine)))
+          (lambda ()
+            (if (not (= 0 (get-register-contents flag)))
+                (set-register-contents! pc insts)
+                (advance-pc pc))))
+        (error "Bad JNE instruction -- ASSEMBLE"))))
+
+(define (jne-dest inst)
+  (cadr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -417,6 +436,26 @@
        (make-machine-load-text 1 0 '((assign 0 (const 0))
                                      (test (op =) (const 0) (const 0)) ; True
                                      (jez (label end))
+                                     (assign 0 (const 1)) ; Should be executed
+                                     end))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
+
+;;; Test jne instruction: true
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (const 0))
+                                     (test (op =) (const 0) (const 0)) ; True
+                                     (jne (label end))
+                                     (assign 0 (const 1)) ; Should not be executed
+                                     end))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
+
+;;; Test jne instruction: false
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (const 0))
+                                     (test (op =) (const 0) (const 1)) ; False
+                                     (jne (label end))
                                      (assign 0 (const 1)) ; Should be executed
                                      end))))
   (start-machine machine)
