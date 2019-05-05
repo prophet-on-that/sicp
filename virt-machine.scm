@@ -188,8 +188,8 @@
          (make-jez inst machine labels))
         ((eq? (car inst) 'jne)
          (make-jne inst machine labels))
-        ;; ((eq? (car inst) 'branch)
-        ;;  #f)
+        ((eq? (car inst) 'branch)
+         (make-branch inst machine labels))
         ;; ((eq? (car inst) 'goto)
         ;;  #f)
         ;; ((eq? (car inst) 'perform)
@@ -343,6 +343,20 @@
 (define (jne-dest inst)
   (cadr inst))
 
+;;; Branch
+
+(define (make-branch inst machine labels)
+  (let ((dest (branch-dest inst)))
+    (if (label-exp? dest)
+        (let ((insts (lookup-label labels (label-exp-label dest)))
+              (pc (get-machine-pc machine)))
+          (lambda ()
+            (set-register-contents! pc insts)))
+        (error "Bad BRANCH instruction -- ASSEMBLE"))))
+
+(define (branch-dest inst)
+  (cadr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -460,5 +474,14 @@
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
+
+;;; Test branch instruction
+(let ((machine
+       (make-machine-load-text 1 0 '((assign 0 (const 0))
+                                     (branch (label end))
+                                     (assign 0 (const 1)) ; Should not be executed
+                                     end))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
 
 (test-end "virt-machine-test")
