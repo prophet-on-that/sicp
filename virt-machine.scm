@@ -203,9 +203,8 @@
         (else
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
-(define (advance-pc machine)
-  (let ((pc (get-machine-pc machine)))
-    (set-register-contents! pc (cdr (get-register-contents pc)))))
+(define (advance-pc pc)
+  (set-register-contents! pc (cdr (get-register-contents pc))))
 
 (define (make-assign inst machine labels)
   (let ((reg-name (assign-reg-name inst)))
@@ -214,10 +213,11 @@
       (let ((value-proc
              (if (operation-exp? value-exp)
                  (make-operation-exp value-exp machine labels)
-                 (make-primitive-exp (car value-exp) machine labels))))
+                 (make-primitive-exp (car value-exp) machine labels)))
+            (pc (get-machine-pc machine)))
         (lambda ()
           (set-register-contents! target (value-proc))
-          (advance-pc machine))))))
+          (advance-pc pc))))))
 
 (define (assign-reg-name assign-instruction)
   (cadr assign-instruction))
@@ -297,10 +297,11 @@
     (if (operation-exp? condition)
         (let ((condition-proc
                (make-operation-exp condition machine labels))
-              (flag (get-machine-flag machine)))
+              (flag (get-machine-flag machine))
+              (pc (get-machine-pc machine)))
           (lambda ()
             (set-register-contents! flag (if (condition-proc) 1 0))
-            (advance-pc machine)))
+            (advance-pc pc)))
         (error "Bad TEST instruction -- ASSEMBLE" inst))))
 
 (define (test-condition test-instruction)
@@ -317,7 +318,7 @@
           (lambda ()
             (if (= 0 (get-register-contents flag))
                 (set-register-contents! pc insts)
-                (advance-pc machine))))
+                (advance-pc pc))))
         (error "Bad JEZ instruction -- ASSEMBLE"))))
 
 (define (jez-dest inst)
