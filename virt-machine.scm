@@ -188,8 +188,8 @@
          (make-jez inst machine labels))
         ((eq? (car inst) 'jne)
          (make-jne inst machine labels))
-        ((eq? (car inst) 'branch)
-         (make-branch inst machine labels))
+        ((eq? (car inst) 'goto)
+         (make-goto inst machine labels))
         ;; ((eq? (car inst) 'goto)
         ;;  #f)
         ;; ((eq? (car inst) 'perform)
@@ -345,16 +345,22 @@
 
 ;;; Branch
 
-(define (make-branch inst machine labels)
-  (let ((dest (branch-dest inst)))
-    (if (label-exp? dest)
-        (let ((insts (lookup-label labels (label-exp-label dest)))
-              (pc (get-machine-pc machine)))
-          (lambda ()
-            (set-register-contents! pc insts)))
-        (error "Bad BRANCH instruction -- ASSEMBLE"))))
+(define (make-goto inst machine labels)
+  (let ((dest (goto-dest inst)))
+    (cond ((label-exp? dest)
+           (let ((insts (lookup-label labels (label-exp-label dest)))
+                 (pc (get-machine-pc machine)))
+             (lambda ()
+               (set-register-contents! pc insts))))
+          ((register-exp? dest)
+           (let ((reg (get-machine-register machine (register-exp-reg dest)))
+                 (pc (get-machine-pc machine)))
+             (lambda ()
+               (set-register-contents! pc (get-register-contents reg)))))
+          (else
+           (error "Bad GOTO instruction -- ASSEMBLE")))))
 
-(define (branch-dest inst)
+(define (goto-dest inst)
   (cadr inst))
 
 ;;; Utilities
@@ -475,10 +481,20 @@
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
-;;; Test branch instruction
+;;; Test goto instruction: label
 (let ((machine
        (make-machine-load-text 1 0 '((assign 0 (const 0))
-                                     (branch (label end))
+                                     (goto (label end))
+                                     (assign 0 (const 1)) ; Should not be executed
+                                     end))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
+
+;;; Test goto instruction: register
+(let ((machine
+       (make-machine-load-text 2 0 '((assign 0 (const 0))
+                                     (assign 1 (label end))
+                                     (goto (reg 1))
                                      (assign 0 (const 1)) ; Should not be executed
                                      end))))
   (start-machine machine)
