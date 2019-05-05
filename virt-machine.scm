@@ -371,14 +371,14 @@
 ;;; Test test instruction: true
 (let ((machine
        (make-machine-load-text 1 0 '((assign 0 (const 1))
-                                     (test (op =) (const 1))))))
+                                     (test (op =) (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-flag machine)) 1))
 
 ;;; Test test instruction: false
 (let ((machine
        (make-machine-load-text 1 0 '((assign 0 (const 0))
-                                     (test (op =) (const 1))))))
+                                     (test (op =) (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-flag machine)) 0))
 
