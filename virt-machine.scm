@@ -200,6 +200,8 @@
         ;;  #f)
         ((eq? (car inst) 'mem-store)
          (make-mem-store inst machine labels))
+        ((eq? (car inst) 'mem-load)
+         (make-mem-load inst machine labels))
         ;; ((eq? (car inst) 'store)
         ;;  #f)
         ;; ((eq? (car inst) 'save)
@@ -418,6 +420,34 @@
 (define (mem-store-val inst)
   (caddr inst))
 
+;;; Mem-load
+
+;;; Slot may be a constant or from a register
+(define (make-mem-load inst machine labels)
+  (let ((pc (get-machine-pc machine))
+        (memory (get-machine-memory machine))
+        (reg (get-machine-register machine (mem-load-reg inst)))
+        (slot-exp (mem-load-slot inst)))
+    (cond ((register-exp? slot-exp)
+           ;; Load slot from register at runtime
+           (let ((slot-reg (get-machine-register machine (register-exp-reg slot-exp))))
+             (lambda ()
+               (set-register-contents! reg (get-memory memory (get-register-contents slot-reg)))
+               (advance-pc pc))))
+          ((constant-exp? slot-exp)
+           (let ((slot (constant-exp-value slot-exp)))
+             (lambda ()
+               (set-register-contents! reg (get-memory memory slot))
+               (advance-pc pc))))
+          (else
+           (error "Bad MEM-LOAD instruction" inst)))))
+
+(define (mem-load-reg inst)
+  (cadr inst))
+
+(define (mem-load-slot inst)
+  (caddr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -582,5 +612,20 @@
        (make-machine-load-text 1 8 '((mem-store (const 2) (const 10))))))
   (start-machine machine)
   (test-eqv (get-memory (get-machine-memory machine) 2) 10))
+
+;;; Test mem-load: slot from register
+(let ((machine
+       (make-machine-load-text 2 8 '((assign 0 (const 0))
+                                     (mem-store (reg 0) (const 10))
+                                     (mem-load 1 (reg 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 1)) 10))
+
+;;; Test mem-load: slot constant
+(let ((machine
+       (make-machine-load-text 1 8 '((mem-store (const 0) (const 10))
+                                     (mem-load 0 (const 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
 
 (test-end "virt-machine-test")
