@@ -2,6 +2,7 @@
 
 (use-modules (srfi srfi-43)
              (srfi srfi-64)
+             (srfi srfi-1)
              (sicp eval-utils))
 
 ;;; Register
@@ -155,10 +156,28 @@
   (cdr label))
 
 (define (assemble controller-text machine)
-  (extract-labels controller-text
+  (extract-labels (preprocess controller-text)
                   (lambda (insts labels)
                     (update-insts! insts labels machine)
                     insts)))
+
+(define (preprocess controller-text)
+  (fold-right
+   (lambda (inst acc)
+     (cond ((tagged-list? inst 'stack-push)
+            (append
+             `((mem-store (reg sp) ,(stack-push-value inst))
+               (assign sp (op -) (reg sp) (const 1)))
+             acc))
+           ((tagged-list? inst 'stack-pop)
+            (append
+             `((assign sp (op +) (reg sp) (const 1))
+               (mem-load ,(stack-pop-target inst) (reg sp)))
+             acc))
+           (else
+            (cons inst acc))))
+   '()
+   controller-text))
 
 (define (extract-labels text cont)
   (if (null? text)
@@ -184,11 +203,11 @@
 
 (define (update-insts! insts labels machine)
   (for-each
-     (lambda (inst)
-       (set-instruction-execution-proc!
-        inst
-        (make-execution-procedure (instruction-text inst) machine labels)))
-     insts))
+   (lambda (inst)
+     (set-instruction-execution-proc!
+      inst
+      (make-execution-procedure (instruction-text inst) machine labels)))
+   insts))
 
 (define (make-execution-procedure inst machine labels)
   (cond ((eq? (car inst) 'assign)
@@ -451,6 +470,16 @@
 (define (mem-load-slot inst)
   (caddr inst))
 
+;;; Stack push
+
+(define (stack-push-value inst)
+  (cadr inst))
+
+;;; Stack pop
+
+(define (stack-pop-target inst)
+  (cadr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -638,5 +667,22 @@
                                      (mem-load 0 (const 0))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
+
+;;; Test stack push
+(let ((machine
+       (make-machine-load-text 1 8 '((assign 0 (const 1))
+                                     (stack-push (reg 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 6)
+  (test-eqv (get-memory (get-machine-memory machine) 7) 1))
+
+;;; Test stack pop
+(let ((machine
+       (make-machine-load-text 2 8 '((assign 0 (const 1))
+                                     (stack-push (reg 0))
+                                     (stack-pop 1)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 7)
+  (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
 
 (test-end "virt-machine-test")
