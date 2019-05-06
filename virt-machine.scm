@@ -253,7 +253,8 @@
   (cadr exp))
 
 (define (constant-exp? exp)
-  (tagged-list? exp 'const))
+  (and (tagged-list? exp 'const)
+       (number? (constant-exp-value exp))))
 
 (define (constant-exp-value exp)
   (cadr exp))
