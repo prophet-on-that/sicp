@@ -46,8 +46,8 @@
 
 ;;; Machine
 
-;;; User programs can interact directly with REGISTERS and MEMORY, but
-;;; only indirectly with the PC, FLAG and SP registers.
+;;; User programs can interact directly with REGISTERS, SP and MEMORY, but
+;;; only indirectly with the PC and FLAG registers.
 (define (make-machine n-registers n-memory-slots)
   (let ((pc (make-register))
         (flag (make-register))
@@ -75,8 +75,12 @@
     (define (install-instruction-sequence! insts)
       (set! instruction-sequence insts))
 
-    (define (get-register k)
-      (vector-ref registers k))
+    (define (get-register reg)
+      (cond ((eq? reg 'sp) sp)
+            ((number? reg)
+             (vector-ref registers reg))
+            (else
+             (error "Invalid register -- GET-REGISTER" reg))))
 
     (define (dispatch message)
       (cond ((eq? message 'start)
@@ -97,6 +101,10 @@
        (vector-set! registers i (make-register)))
      registers)
 
+    ;; Assign sp
+    (if (> n-memory-slots 0)
+        (set-register-contents! sp (1- n-memory-slots)))
+
     dispatch))
 
 (define (start-machine machine)
@@ -111,14 +119,11 @@
 (define (get-machine-flag machine)
   (machine 'get-flag))
 
-(define (get-machine-sp machine)
-  (machine 'get-sp))
-
 (define (get-machine-registers machine)
   (machine 'get-registers))
 
-(define (get-machine-register machine k)
-  ((machine 'get-register) k))
+(define (get-machine-register machine reg)
+  ((machine 'get-register) reg))
 
 (define (get-machine-memory machine)
   (machine 'get-memory))
@@ -202,8 +207,6 @@
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
          (make-mem-load inst machine labels))
-        ;; ((eq? (car inst) 'store)
-        ;;  #f)
         ;; ((eq? (car inst) 'save)
         ;;  #f)
         ;; ((eq? (car inst) 'restore)
@@ -511,6 +514,14 @@
                                      (assign 1 (op +) (reg 0) (const 2))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 3))
+
+;;; Test assignment involving stack pointer
+(let ((machine
+       (make-machine-load-text 1 8 '((assign sp (const 10))
+                                     (assign 0 (op +) (const 1) (reg sp))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 10)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 11))
 
 ;;; Test test instruction: true
 (let ((machine
