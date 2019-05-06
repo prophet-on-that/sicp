@@ -38,6 +38,12 @@
              (error "Unknown message -- MEMORY" message))))
     dispatch))
 
+(define (set-memory! memory slot val)
+  ((memory 'set) slot val))
+
+(define (get-memory memory slot)
+  ((memory 'get) slot))
+
 ;;; Machine
 
 ;;; User programs can interact directly with REGISTERS and MEMORY, but
@@ -190,12 +196,10 @@
          (make-jne inst machine labels))
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels))
-        ;; ((eq? (car inst) 'goto)
-        ;;  #f)
         ;; ((eq? (car inst) 'perform)
         ;;  #f)
-        ;; ((eq? (car inst) 'load)
-        ;;  #f)
+        ((eq? (car inst) 'mem-store)
+         (make-mem-store inst machine labels))
         ;; ((eq? (car inst) 'store)
         ;;  #f)
         ;; ((eq? (car inst) 'save)
@@ -364,6 +368,56 @@
 (define (goto-dest inst)
   (cadr inst))
 
+;;; Mem-store
+
+;;; The MEM-STORE instruciton supports storing constant expressions
+;;; (not labels) or values in registers in memory.
+(define (make-mem-store inst machine labels)
+  (let ((slot (mem-store-slot inst))
+        (val (mem-store-val inst))
+        (memory (get-machine-memory machine))
+        (pc (get-machine-pc machine)))
+    (cond ((and (register-exp? slot)
+                (register-exp? val))
+           ;; Read both slot and val at runtime
+           (let ((slot-reg (get-machine-register machine (register-exp-reg slot)))
+                 (val-reg (get-machine-register machine (register-exp-reg val))))
+             (lambda ()
+               (set-memory! memory (get-register-contents slot-reg) (get-register-contents val-reg))
+               (advance-pc pc))))
+          ((and (register-exp? slot)
+                (constant-exp? val))
+           ;; Read slot at runtime, value is constant
+           (let ((slot-reg (get-machine-register machine (register-exp-reg slot)))
+                 (value (constant-exp-value val)))
+             (lambda ()
+               (set-memory! memory (get-register-contents slot-reg) value)
+               (advance-pc pc))))
+          ((and (constant-exp? slot)
+                (register-exp? val))
+           ;; Read value at runtime, slot is constant
+           (let ((slot-value (constant-exp-value slot))
+                 (val-reg (get-machine-register machine (register-exp-reg val))))
+             (lambda ()
+               (set-memory! memory slot-value (get-register-contents val-reg))
+               (advance-pc pc))))
+          ((and (constant-exp? slot)
+                (constant-exp? val))
+           ;; Both slot and val are constant
+           (let ((slot-val (constant-exp-value slot))
+                 (value (constant-exp-value val)))
+             (lambda ()
+               (set-memory! memory slot-val value)
+               (advance-pc pc))))
+          (else
+           (error "Bad MEM-STORE instruction" inst)))))
+
+(define (mem-store-slot inst)
+  (cadr inst))
+
+(define (mem-store-val inst)
+  (caddr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -500,5 +554,33 @@
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
+
+;;; Test mem-store: slot and val both from registers
+(let ((machine
+       (make-machine-load-text 2 8 '((assign 0 (const 1)) ; Slot
+                                     (assign 1 (const 2)) ; Val
+                                     (mem-store (reg 0) (reg 1))))))
+  (start-machine machine)
+  (test-eqv (get-memory (get-machine-memory machine) 1) 2))
+
+;;; Test mem-store: slot from register, val constant
+(let ((machine
+       (make-machine-load-text 1 8 '((assign 0 (const 1)) ; Slot
+                                     (mem-store (reg 0) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-memory (get-machine-memory machine) 1) 1))
+
+;;; Test mem-store: slot constant, val from register
+(let ((machine
+       (make-machine-load-text 1 8 '((assign 0 (const 1)) ; Val
+                                     (mem-store (const 2) (reg 0))))))
+  (start-machine machine)
+  (test-eqv (get-memory (get-machine-memory machine) 2) 1))
+
+;;; Test mem-store: slot and val constant
+(let ((machine
+       (make-machine-load-text 1 8 '((mem-store (const 2) (const 10))))))
+  (start-machine machine)
+  (test-eqv (get-memory (get-machine-memory machine) 2) 10))
 
 (test-end "virt-machine-test")
