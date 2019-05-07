@@ -65,7 +65,9 @@
         (ops (list
               (list '+ +)
               (list '- -)
-              (list '= =))))
+              (list '* *)
+              (list '= =)
+              (list '<= <=))))
 
     (define (start)
       (set-register-contents! pc instruction-sequence)
@@ -690,5 +692,52 @@
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 'sp)) 7)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
+
+;;; Test factorial iterative implementation
+(let* ((code
+       ;; Assume register 0 holds n, output n! into register 1
+       '((assign 1 (const 1))
+         before-test
+         (test (op <=) (reg 0) (const 1))
+         (jne (label after-loop))
+         (assign 1 (op *) (reg 0) (reg 1))
+         (assign 0 (op -) (reg 0) (const 1))
+         (goto (label before-test))
+         after-loop))
+       (machine (make-machine-load-text 2 0 code))
+       (reg0 (get-machine-register machine 0))
+       (reg1 (get-machine-register machine 1)))
+  (set-register-contents! reg0 5)
+  (start-machine machine)
+  (test-eqv (get-register-contents reg1) 120))
+
+;;; Test factorial recursive implementation
+(let* ((code
+        ;; Input: n in register 0
+        ;; Ouput: n! in register 1
+        '((assign 2 (label fact-end))
+          factorial-test
+          (test (op <=) (reg 0) (const 1))
+          (jne (label base-case))
+          (stack-push (reg 0))          ; Save n
+          (stack-push (reg 2))          ; Save continue register
+          (assign 2 (label after-recursion))
+          (assign 0 (op -) (reg 0) (const 1))
+          (goto (label factorial-test))
+          after-recursion
+          (stack-pop 2)                 ; Restore continue
+          (stack-pop 0)                 ; Restore n
+          (assign 1 (op *) (reg 0) (reg 1))
+          (goto (reg 2))
+          base-case
+          (assign 1 (const 1))
+          (goto (reg 2))
+          fact-end))
+       (machine (make-machine-load-text 4 512 code))
+       (reg0 (get-machine-register machine 0))
+       (reg1 (get-machine-register machine 1)))
+  (set-register-contents! reg0 5)
+  (start-machine machine)
+  (test-eqv (get-register-contents reg1) 120))
 
 (test-end "virt-machine-test")
