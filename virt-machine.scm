@@ -188,9 +188,9 @@
                           (let ((insts-to-insert
                                  (cond ((tagged-list? next-inst 'stack-push)
                                         `((mem-store (reg sp) ,(stack-push-value next-inst))
-                                          (assign sp (op -) (reg sp) (const 1))))
+                                          (assign (reg sp) (op -) (reg sp) (const 1))))
                                        ((tagged-list? next-inst 'stack-pop)
-                                        `((assign sp (op +) (reg sp) (const 1))
+                                        `((assign (reg sp) (op +) (reg sp) (const 1))
                                           (mem-load ,(stack-pop-target next-inst) (reg sp))))
                                        (else (list next-inst)))))
                             (cont (append
@@ -275,7 +275,7 @@
   (set-register-contents! pc (cdr (get-register-contents pc))))
 
 (define (make-assign inst machine labels)
-  (let ((reg-name (assign-reg-name inst)))
+  (let ((reg-name (register-exp-reg (assign-reg inst))))
     (let ((target (get-machine-register machine reg-name))
           (value-exp (assign-value-exp inst)))
       (let ((value-proc
@@ -287,7 +287,7 @@
           (set-register-contents! target (value-proc))
           (advance-pc pc))))))
 
-(define (assign-reg-name assign-instruction)
+(define (assign-reg assign-instruction)
   (cadr assign-instruction))
 
 (define (assign-value-exp assign-instruction)
@@ -486,7 +486,7 @@
 (define (make-mem-load inst machine labels)
   (let ((pc (get-machine-pc machine))
         (memory (get-machine-memory machine))
-        (reg (get-machine-register machine (mem-load-reg inst)))
+        (reg (get-machine-register machine (register-exp-reg (mem-load-reg inst))))
         (slot-exp (mem-load-slot inst)))
     (cond ((register-exp? slot-exp)
            ;; Load slot from register at runtime
@@ -532,30 +532,30 @@
 
 ;;; Test primitive assignment of constant
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))))))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))))))
   (start-machine machine)
   (let ((register (get-machine-register machine 0)))
     (test-eqv (get-register-contents register) 0)))
 
 ;;; Test primitive assignment to multiple registers
 (let ((machine
-       (make-machine-load-text 2 0 '((assign 0 (const 0))
-                                     (assign 1 (const 1))))))
+       (make-machine-load-text 2 0 '((assign (reg 0) (const 0))
+                                     (assign (reg 1) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
 
 ;;; Test primitive assignment and update
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
-                                     (assign 0 (const 1))))))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
+                                     (assign (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
 ;;; Test primitive assignment of label
 (let ((machine
        (make-machine-load-text 1 0 '(label
-                                     (assign 0 (label label))))))
+                                     (assign (reg 0) (label label))))))
   (start-machine machine)
   (let ((insts (get-register-contents (get-machine-register machine 0))))
     (test-assert (and (pair? insts)
@@ -563,124 +563,124 @@
 
 ;;; Test constant operator assignment
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (op +) (const 1) (const 1))))))
+       (make-machine-load-text 1 0 '((assign (reg 0) (op +) (const 1) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 2))
 
 ;;; Test register operator assignment
 (let ((machine
-       (make-machine-load-text 3 0 '((assign 0 (const 1))
-                                     (assign 1 (const 2))
-                                     (assign 2 (op +) (reg 0) (reg 1))))))
+       (make-machine-load-text 3 0 '((assign (reg 0) (const 1))
+                                     (assign (reg 1) (const 2))
+                                     (assign (reg 2) (op +) (reg 0) (reg 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 2)) 3))
 
 ;;; Test const and register operator assignment
 (let ((machine
-       (make-machine-load-text 2 0 '((assign 0 (const 1))
-                                     (assign 1 (op +) (reg 0) (const 2))))))
+       (make-machine-load-text 2 0 '((assign (reg 0) (const 1))
+                                     (assign (reg 1) (op +) (reg 0) (const 2))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 3))
 
 ;;; Test assignment involving stack pointer
 (let ((machine
-       (make-machine-load-text 1 8 '((assign sp (const 10))
-                                     (assign 0 (op +) (const 1) (reg sp))))))
+       (make-machine-load-text 1 8 '((assign (reg sp) (const 10))
+                                     (assign (reg 0) (op +) (const 1) (reg sp))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 'sp)) 10)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 11))
 
 ;;; Test test instruction: true
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 1))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 1))
                                      (test (op =) (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-flag machine)) 1))
 
 ;;; Test test instruction: false
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (test (op =) (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-flag machine)) 0))
 
 ;;; Test jez instruction: true
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (test (op =) (const 0) (const 1)) ; False
                                      (jez (label end))
-                                     (assign 0 (const 1)) ; Should not be executed
+                                     (assign (reg 0) (const 1)) ; Should not be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
 
 ;;; Test jez instruction: false
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (test (op =) (const 0) (const 0)) ; True
                                      (jez (label end))
-                                     (assign 0 (const 1)) ; Should be executed
+                                     (assign (reg 0) (const 1)) ; Should be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
 ;;; Test jne instruction: true
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (test (op =) (const 0) (const 0)) ; True
                                      (jne (label end))
-                                     (assign 0 (const 1)) ; Should not be executed
+                                     (assign (reg 0) (const 1)) ; Should not be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
 
 ;;; Test jne instruction: false
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (test (op =) (const 0) (const 1)) ; False
                                      (jne (label end))
-                                     (assign 0 (const 1)) ; Should be executed
+                                     (assign (reg 0) (const 1)) ; Should be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
 ;;; Test goto instruction: label
 (let ((machine
-       (make-machine-load-text 1 0 '((assign 0 (const 0))
+       (make-machine-load-text 1 0 '((assign (reg 0) (const 0))
                                      (goto (label end))
-                                     (assign 0 (const 1)) ; Should not be executed
+                                     (assign (reg 0) (const 1)) ; Should not be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
 
 ;;; Test goto instruction: register
 (let ((machine
-       (make-machine-load-text 2 0 '((assign 0 (const 0))
-                                     (assign 1 (label end))
+       (make-machine-load-text 2 0 '((assign (reg 0) (const 0))
+                                     (assign (reg 1) (label end))
                                      (goto (reg 1))
-                                     (assign 0 (const 1)) ; Should not be executed
+                                     (assign (reg 0) (const 1)) ; Should not be executed
                                      end))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0))
 
 ;;; Test mem-store: slot and val both from registers
 (let ((machine
-       (make-machine-load-text 2 8 '((assign 0 (const 1)) ; Slot
-                                     (assign 1 (const 2)) ; Val
+       (make-machine-load-text 2 8 '((assign (reg 0) (const 1)) ; Slot
+                                     (assign (reg 1) (const 2)) ; Val
                                      (mem-store (reg 0) (reg 1))))))
   (start-machine machine)
   (test-eqv (get-memory (get-machine-memory machine) 1) 2))
 
 ;;; Test mem-store: slot from register, val constant
 (let ((machine
-       (make-machine-load-text 1 8 '((assign 0 (const 1)) ; Slot
+       (make-machine-load-text 1 8 '((assign (reg 0) (const 1)) ; Slot
                                      (mem-store (reg 0) (const 1))))))
   (start-machine machine)
   (test-eqv (get-memory (get-machine-memory machine) 1) 1))
 
 ;;; Test mem-store: slot constant, val from register
 (let ((machine
-       (make-machine-load-text 1 8 '((assign 0 (const 1)) ; Val
+       (make-machine-load-text 1 8 '((assign (reg 0) (const 1)) ; Val
                                      (mem-store (const 2) (reg 0))))))
   (start-machine machine)
   (test-eqv (get-memory (get-machine-memory machine) 2) 1))
@@ -693,22 +693,22 @@
 
 ;;; Test mem-load: slot from register
 (let ((machine
-       (make-machine-load-text 2 8 '((assign 0 (const 0))
+       (make-machine-load-text 2 8 '((assign (reg 0) (const 0))
                                      (mem-store (reg 0) (const 10))
-                                     (mem-load 1 (reg 0))))))
+                                     (mem-load (reg 1) (reg 0))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 10))
 
 ;;; Test mem-load: slot constant
 (let ((machine
        (make-machine-load-text 1 8 '((mem-store (const 0) (const 10))
-                                     (mem-load 0 (const 0))))))
+                                     (mem-load (reg 0) (const 0))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
 
 ;;; Test stack push
 (let ((machine
-       (make-machine-load-text 1 8 '((assign 0 (const 1))
+       (make-machine-load-text 1 8 '((assign (reg 0) (const 1))
                                      (stack-push (reg 0))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 'sp)) 6)
@@ -716,22 +716,32 @@
 
 ;;; Test stack pop
 (let ((machine
-       (make-machine-load-text 2 8 '((assign 0 (const 1))
+       (make-machine-load-text 2 8 '((assign (reg 0) (const 1))
                                      (stack-push (reg 0))
-                                     (stack-pop 1)))))
+                                     (stack-pop (reg 1))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 'sp)) 7)
+  (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
+
+;;; Test alias
+(let ((machine
+       (make-machine-load-text 2 0 '((alias 0 n)
+                                     (assign (reg n) (const 0))
+                                     (alias 1 n)
+                                     (assign (reg n) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 0)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
 
 ;;; Test factorial iterative implementation
 (let* ((code
        ;; Assume register 0 holds n, output n! into register 1
-       '((assign 1 (const 1))
+       '((assign (reg 1) (const 1))
          before-test
          (test (op <=) (reg 0) (const 1))
          (jne (label after-loop))
-         (assign 1 (op *) (reg 0) (reg 1))
-         (assign 0 (op -) (reg 0) (const 1))
+         (assign (reg 1) (op *) (reg 0) (reg 1))
+         (assign (reg 0) (op -) (reg 0) (const 1))
          (goto (label before-test))
          after-loop))
        (machine (make-machine-load-text 2 0 code))
@@ -745,23 +755,26 @@
 (let* ((code
         ;; Input: n in register 0
         ;; Ouput: n! in register 1
-        '((assign 2 (label fact-end))
+        '((alias 0 n)
+          (alias 1 ret)
+          (alias 2 continue)
+          (assign (reg continue) (label fact-end))
           factorial-test
-          (test (op <=) (reg 0) (const 1))
+          (test (op <=) (reg n) (const 1))
           (jne (label base-case))
-          (stack-push (reg 0))          ; Save n
-          (stack-push (reg 2))          ; Save continue register
-          (assign 2 (label after-recursion))
-          (assign 0 (op -) (reg 0) (const 1))
+          (stack-push (reg n))          ; Save n
+          (stack-push (reg continue))   ; Save continue register
+          (assign (reg continue) (label after-recursion))
+          (assign (reg n) (op -) (reg n) (const 1))
           (goto (label factorial-test))
           after-recursion
-          (stack-pop 2)                 ; Restore continue
-          (stack-pop 0)                 ; Restore n
-          (assign 1 (op *) (reg 0) (reg 1))
-          (goto (reg 2))
+          (stack-pop (reg continue))                 ; Restore continue
+          (stack-pop (reg n))                        ; Restore n
+          (assign (reg ret) (op *) (reg n) (reg 1))
+          (goto (reg continue))
           base-case
-          (assign 1 (const 1))
-          (goto (reg 2))
+          (assign (reg ret) (const 1))
+          (goto (reg continue))
           fact-end))
        (machine (make-machine-load-text 4 512 code))
        (reg0 (get-machine-register machine 0))
