@@ -164,28 +164,62 @@
   (cdr label))
 
 (define (assemble controller-text machine)
-  (extract-labels (preprocess controller-text)
-                  (lambda (insts labels)
-                    (update-insts! insts labels machine)
-                    insts)))
+  (preprocess controller-text
+              '()
+              (lambda (text)
+                (extract-labels text
+                                (lambda (insts labels)
+                                  (update-insts! insts labels machine)
+                                  insts)))))
 
-(define (preprocess controller-text)
-  (fold-right
-   (lambda (inst acc)
-     (cond ((tagged-list? inst 'stack-push)
-            (append
-             `((mem-store (reg sp) ,(stack-push-value inst))
-               (assign sp (op -) (reg sp) (const 1)))
-             acc))
-           ((tagged-list? inst 'stack-pop)
-            (append
-             `((assign sp (op +) (reg sp) (const 1))
-               (mem-load ,(stack-pop-target inst) (reg sp)))
-             acc))
-           (else
-            (cons inst acc))))
-   '()
-   controller-text))
+(define (preprocess text aliases cont)
+  (if (null? text)
+      (cont '())
+      (let ((next-inst (car text)))
+        (if (tagged-list? next-inst 'alias)
+            (preprocess (cdr text)
+                        (acons (alias-value next-inst)
+                               (alias-target next-inst)
+                               aliases)
+                        cont)
+            (preprocess (cdr text)
+                        aliases
+                        (lambda (insts)
+                          (let ((insts-to-insert
+                                 (cond ((tagged-list? next-inst 'stack-push)
+                                        `((mem-store (reg sp) ,(stack-push-value next-inst))
+                                          (assign sp (op -) (reg sp) (const 1))))
+                                       ((tagged-list? next-inst 'stack-pop)
+                                        `((assign sp (op +) (reg sp) (const 1))
+                                          (mem-load ,(stack-pop-target next-inst) (reg sp))))
+                                       (else (list next-inst)))))
+                            (cont (append
+                                   (map (lambda (inst)
+                                          (replace-aliases inst aliases))
+                                        insts-to-insert)
+                                        insts)))))))))
+
+(define (replace-aliases inst aliases)
+  (if (list? inst)
+      (map
+       (lambda (sub-expr)
+         (if (and (pair? sub-expr)
+                  (register-exp? sub-expr))
+             (let ((mapped (assoc (register-exp-reg sub-expr)
+                                  aliases)))
+               (list 'reg
+                     (if mapped
+                         (cdr mapped)
+                         (register-exp-reg sub-expr))))
+             sub-expr))
+       inst)
+      inst))
+
+(define (alias-target inst)
+  (cadr inst))
+
+(define (alias-value inst)
+  (caddr inst))
 
 (define (extract-labels text cont)
   (if (null? text)
