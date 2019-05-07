@@ -234,10 +234,6 @@
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
          (make-mem-load inst machine labels))
-        ;; ((eq? (car inst) 'save)
-        ;;  #f)
-        ;; ((eq? (car inst) 'restore)
-        ;;  #f)
         (else
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
