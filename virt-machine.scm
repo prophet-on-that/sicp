@@ -268,6 +268,8 @@
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
          (make-mem-load inst machine labels))
+        ((eq? (car inst) 'error)
+         (make-error-instruction inst machine labels))
         (else
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
@@ -518,6 +520,19 @@
 (define (stack-pop-target inst)
   (cadr inst))
 
+;;; Error
+
+(define (make-error-instruction inst machine labels)
+  (let ((error-code-exp (error-inst-code inst)))
+    (if (constant-exp? error-code-exp)
+        (let ((error-code (constant-exp-value error-code-exp)))
+          (lambda ()
+            (error "The program has exited with an error." error-code)))
+        (error "Invalid ERROR instruction" inst))))
+
+(define (error-inst-code inst)
+  (cadr inst))
+
 ;;; Utilities
 
 (define (make-machine-load-text n-registers n-memory-slots controller-text)
@@ -732,6 +747,11 @@
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
+
+;;; Test error
+(let ((machine
+       (make-machine-load-text 0 0 '((error (const 1))))))
+  (test-error #t (start-machine machine)))
 
 ;;; Test factorial iterative implementation
 (let* ((code
