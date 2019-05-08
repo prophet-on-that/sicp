@@ -18,10 +18,10 @@
              (error "Unknown message -- REGISTER" message))))
     dispatch))
 
-(define (get-register-contents register)
+(define-public (get-register-contents register)
   (register 'get))
 
-(define (set-register-contents! register val)
+(define-public (set-register-contents! register val)
   ((register 'set!) val))
 
 ;;; Memory
@@ -45,17 +45,17 @@
              (error "Unknown message -- MEMORY" message))))
     dispatch))
 
-(define (set-memory! memory slot val)
+(define-public (set-memory! memory slot val)
   ((memory 'set) slot val))
 
-(define (get-memory memory slot)
+(define-public (get-memory memory slot)
   ((memory 'get) slot))
 
 ;;; Machine
 
 ;;; User programs can interact directly with REGISTERS, SP and MEMORY, but
 ;;; only indirectly with the PC and FLAG registers.
-(define (make-machine n-registers n-memory-slots)
+(define-public (make-machine n-registers n-memory-slots)
   (let ((pc (make-register))
         (flag (make-register))
         (sp (make-register))
@@ -116,28 +116,28 @@
 
     dispatch))
 
-(define (start-machine machine)
+(define-public (start-machine machine)
   (machine 'start))
 
-(define (install-machine-instruction-sequence! machine insts)
+(define-public (install-machine-instruction-sequence! machine insts)
   ((machine 'install-instruction-sequence!) insts))
 
-(define (get-machine-pc machine)
+(define-public (get-machine-pc machine)
   (machine 'get-pc))
 
-(define (get-machine-flag machine)
+(define-public (get-machine-flag machine)
   (machine 'get-flag))
 
-(define (get-machine-registers machine)
+(define-public (get-machine-registers machine)
   (machine 'get-registers))
 
-(define (get-machine-register machine reg)
+(define-public (get-machine-register machine reg)
   ((machine 'get-register) reg))
 
-(define (get-machine-memory machine)
+(define-public (get-machine-memory machine)
   (machine 'get-memory))
 
-(define (get-machine-ops machine)
+(define-public (get-machine-ops machine)
   (machine 'get-ops))
 
 ;;; Assembler
@@ -163,7 +163,7 @@
 (define (label-inst label)
   (cdr label))
 
-(define (assemble controller-text machine)
+(define-public (assemble controller-text machine)
   (preprocess controller-text
               '()
               (lambda (text)
@@ -535,7 +535,7 @@
 
 ;;; Utilities
 
-(define (make-machine-load-text n-registers n-memory-slots controller-text)
+(define-public (make-machine-load-text n-registers n-memory-slots controller-text)
   (let ((machine (make-machine n-registers n-memory-slots)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
