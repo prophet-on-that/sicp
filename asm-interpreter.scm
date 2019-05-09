@@ -26,6 +26,7 @@
 
 ;;; Exit codes
 ;;; 1 - attempting to take CAR of a non-pair
+;;; 2 - attempting to take CDR of a non-pair
 
 (define (init max-num-pairs)
   `((alias ,rax rax)
@@ -89,7 +90,7 @@
     ;; rbx
     ;; Outputs:
     ;; rax - car of pair
-    ;; TODO: test for this in Scheme CAR implementation
+    ;; TODO: test for pair in Scheme CAR implementation
     (stack-push (reg continue))
     (stack-push (reg rax))
     (assign (reg continue) (label car-after-pair?))
@@ -104,7 +105,32 @@
     (mem-load (reg rax) (reg rax))
     (goto (reg continue))
     car-invalid-arg
-    (error (const 1))))
+    (error (const 1))
+
+    cdr
+    ;; Inputs
+    ;; rax - pair
+    ;; Uses:
+    ;; rax
+    ;; rbx
+    ;; Outputs:
+    ;; rax - cdr of pair
+    ;; TODO: test for pair in Scheme CDR implementation
+    (stack-push (reg continue))
+    (stack-push (reg rax))
+    (assign (reg continue) (label cdr-after-pair?))
+    (goto (label pair?))
+    cdr-after-pair?
+    (jez (label cdr-invalid-arg))
+    (stack-pop (reg rax))
+    (stack-pop (reg continue))
+    (assign (reg rax) (op logand) (reg rax) (const ,value-mask))
+    (mem-load (reg rbx) (const ,the-cdrs-pointer))
+    (assign (reg rax) (op +) (reg rax) (reg rbx))
+    (mem-load (reg rax) (reg rax))
+    (goto (reg continue))
+    cdr-invalid-arg
+    (error (const 2))))
 
 ;;; Utilities
 
@@ -195,6 +221,34 @@
            (assign (reg continue) (label after-car))
            (goto (label car))
            after-car)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code)))
+  (test-error #t (start-machine machine)))
+
+;;; Test cdr: valid pair
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           (assign (reg continue) (label after-cons))
+           (goto (label cons))
+           after-cons
+           (assign (reg continue) (label after-cdr))
+           (goto (label cdr))
+           after-cdr)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code))
+       (rax (get-machine-register machine rax)))
+  (start-machine machine)
+  (test-eqv (get-register-contents rax) (logior number-tag 2)))
+
+;;; Test cdr: invalid pair
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg continue) (label after-cdr))
+           (goto (label cdr))
+           after-cdr)))
        (machine (make-machine-load-text test-num-registers test-memory-size code)))
   (test-error #t (start-machine machine)))
 
