@@ -67,7 +67,9 @@
               (list '- -)
               (list '* *)
               (list '= =)
-              (list '<= <=))))
+              (list '<= <=)
+              (list 'logand logand)
+              (list 'logior logior))))
 
     (define (start)
       (set-register-contents! pc instruction-sequence)
