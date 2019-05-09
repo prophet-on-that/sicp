@@ -69,7 +69,8 @@
               (list '= =)
               (list '<= <=)
               (list 'logand logand)
-              (list 'logior logior))))
+              (list 'logior logior)))
+        (trace #f))
 
     (define (start)
       (set-register-contents! pc instruction-sequence)
@@ -80,6 +81,11 @@
         (if (null? insts)
             'done
             (let ((next-inst (car insts)))
+              (if trace
+                  (begin
+                    (display "trace: ")
+                    (display (instruction-text next-inst))
+                    (newline)))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -93,6 +99,9 @@
             (else
              (error "Invalid register -- GET-REGISTER" reg))))
 
+    (define (set-trace b)
+      (set! trace b))
+
     (define (dispatch message)
       (cond ((eq? message 'start)
              (start))
@@ -104,7 +113,10 @@
             ((eq? message 'get-registers) registers)
             ((eq? message 'get-register) get-register)
             ((eq? message 'get-memory) memory)
-            ((eq? message 'get-ops) ops)))
+            ((eq? message 'get-ops) ops)
+            ((eq? message 'set-trace) set-trace)
+            (else
+             (error "Unrecognised message -- MACHINE" message))))
 
     ;; Assign registers
     (vector-for-each
@@ -141,6 +153,9 @@
 
 (define-public (get-machine-ops machine)
   (machine 'get-ops))
+
+(define-public (set-machine-trace machine b)
+  ((machine 'set-trace) b))
 
 ;;; Assembler
 
