@@ -12,33 +12,39 @@
 (define number-tag #x20000000)
 
 ;;; Register aliases
-;;; 0 - the-cars
-;;; 1 - the-cdrs
-;;; 2 - free: current unassigned index into the-cars and the-cdrs
-;;; 3 - rax: general-purpose
-;;; 4 - rbx: general-purpose
-;;; 5 - rcx: general-purpose
-;;; 6 - continue
+(define rax 0)
+(define rbx 1)
+(define rcx 2)
+(define rdx 3)
+(define continue 4)
 
-;;; Memory layout:
-;;; 0 - max-num-pairs - 1: the-cars
-;;; max-num-pairs - 2 * max-num-pairs - 1: the-cdrs
+;;; Memory layout
+(define the-cars-pointer 0)
+(define the-cdrs-pointer 1)
+(define free-pair-pointer 2)            ; Next unassigned index into the pairs arrays
+(define the-cars-offset 8)
 
 ;;; Exit codes
 ;;; 1 - attempting to take CAR of a non-pair
 
 (define (init max-num-pairs)
-  `((alias 0 the-cars)
-    (alias 1 the-cdrs)
-    (alias 2 next-free-pair)
-    (alias 3 rax)
-    (alias 4 rbx)
-    (alias 5 rcx)
-    (alias 6 continue)
+  `((alias ,rax rax)
+    (alias ,rbx rbx)
+    (alias ,rcx rcx)
+    (alias ,rdx rdx)
+    (alias ,continue continue)
 
-    (assign (reg the-cars) (const 0))
-    (assign (reg the-cdrs) (const ,max-num-pairs))
-    (assign (reg next-free-pair) (const 0))))
+    ;; Initialise the-cars-pointer
+    (assign (reg rax) (const ,the-cars-offset))
+    (mem-store (const ,the-cars-pointer) (reg rax))
+
+    ;; Initialise the-cdrs pointer
+    (assign (reg rax) (const ,(+ the-cars-offset max-num-pairs)))
+    (mem-store (const ,the-cdrs-pointer) (reg rax))
+
+    ;; Initialise free-pair-pointer
+    (assign (reg rax) (const 0))
+    (mem-store (const ,free-pair-pointer) (reg rax))))
 
 (define (memory-management-defs max-num-pairs)
   `(cons
@@ -48,14 +54,20 @@
     ;; Uses:
     ;; rax
     ;; rcx
+    ;; rdx
     ;; Outputs:
     ;; rax - newly-assigned pair
-    (assign (reg rcx) (op +) (reg the-cars) (reg next-free-pair)) ; Offset into the-cars
-    (mem-store (reg rcx) (reg rax))
-    (assign (reg rcx) (op +) (reg the-cdrs) (reg next-free-pair)) ; Offset into the-cdrs
-    (mem-store (reg rcx) (reg rbx))
-    (assign (reg rax) (op logior) (reg next-free-pair) (const ,pair-tag))
-    (assign (reg next-free-pair) (op +) (reg next-free-pair) (const 1)) ; TODO: check bounds and trigger garbage collection
+    ;; TODO: trigger garbage collection when out of space
+    (mem-load (reg rcx) (const ,free-pair-pointer))
+    (mem-load (reg rdx) (const ,the-cars-pointer))
+    (assign (reg rdx) (op +) (reg rdx) (reg rcx))
+    (mem-store (reg rdx) (reg rax))
+    (mem-load (reg rdx) (const ,the-cdrs-pointer))
+    (assign (reg rdx) (op +) (reg rdx) (reg rcx))
+    (mem-store (reg rdx) (reg rbx))
+    (assign (reg rax) (op logior) (reg rcx) (const ,pair-tag))
+    (assign (reg rcx) (op +) (reg rcx) (const 1))
+    (mem-store (const ,free-pair-pointer) (reg rcx))
     (goto (reg continue))
 
     pair?
@@ -77,6 +89,7 @@
     ;; rbx
     ;; Outputs:
     ;; rax - car of pair
+    ;; TODO: test for this in Scheme CAR implementation
     (stack-push (reg continue))
     (stack-push (reg rax))
     (assign (reg continue) (label car-after-pair?))
@@ -85,101 +98,104 @@
     (jez (label car-invalid-arg))
     (stack-pop (reg rax))
     (stack-pop (reg continue))
-    (assign (reg rbx) (op logand) (reg rax) (const ,value-mask)) ; Fetch offset into the-cars and the-cdrs
-    (assign (reg rbx) (op +) (reg rbx) (reg the-cars))
-    (mem-load (reg rax) (reg rbx))
+    (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into the-cars and the-cdrs
+    (mem-load (reg rbx) (const ,the-cars-pointer))
+    (assign (reg rax) (op +) (reg rax) (reg rbx))
+    (mem-load (reg rax) (reg rax))
     (goto (reg continue))
     car-invalid-arg
     (error (const 1))))
 
+;;; Utilities
+
+(define (wrap-code max-num-pairs code)
+  `(,@(init max-num-pairs)
+    (goto (label start))
+    ,@(memory-management-defs max-num-pairs)
+    start
+    ,@code))
+
 ;;; Test suite
+
+(define test-max-num-pairs 8)
+(define test-num-registers 8)
+(define test-memory-size (+ the-cars-offset
+                            (* test-max-num-pairs 4)))
 
 (test-begin "asm-interpreter-test")
 
 ;;; Test cons
-(let* ((max-num-pairs 4)
-       (code `(,@(init max-num-pairs)
-               (goto (label start))
-               ,@(memory-management-defs max-num-pairs)
-               start
-               (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-               (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
-               (assign (reg continue) (label after-cons))
-               (goto (label cons))
-               after-cons))
-      (machine (make-machine-load-text 8 8 code))
-      (reg3 (get-machine-register machine 3))
-      (reg-free (get-machine-register machine 2))
-      (memory (get-machine-memory machine)))
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           (assign (reg continue) (label after-cons))
+           (goto (label cons))
+           after-cons)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code))
+       (rax (get-machine-register machine rax))
+       (memory (get-machine-memory machine)))
   (start-machine machine)
-  (test-eqv (get-register-contents reg3) (logior pair-tag 0))
-  (test-eqv (get-register-contents reg-free) 1))
+  (test-eqv (get-register-contents rax) (logior pair-tag 0))
+  (test-eqv (get-memory memory free-pair-pointer) 1))
 
 ;;; Test pair?: true
-(let* ((max-num-pairs 4)
-       (code `(,@(init max-num-pairs)
-               (goto (label start))
-               ,@(memory-management-defs max-num-pairs)
-               start
-               (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-               (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
-               (assign (reg continue) (label after-cons))
-               (goto (label cons))
-               after-cons
-               (assign (reg continue) (label after-pair?))
-               (goto (label pair?))
-               after-pair?))
-      (machine (make-machine-load-text 8 8 code))
-      (flag (get-machine-flag machine)))
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           (assign (reg continue) (label after-cons))
+           (goto (label cons))
+           after-cons
+           (assign (reg continue) (label after-pair?))
+           (goto (label pair?))
+           after-pair?)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code))
+       (flag (get-machine-flag machine)))
   (start-machine machine)
   (test-eqv (get-register-contents flag) 1))
 
 ;;; Test pair?: false
-(let* ((max-num-pairs 4)
-       (code `(,@(init max-num-pairs)
-               (goto (label start))
-               ,@(memory-management-defs max-num-pairs)
-               start
-               (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-               (assign (reg continue) (label after-pair?))
-               (goto (label pair?))
-               after-pair?))
-      (machine (make-machine-load-text 8 8 code))
-      (flag (get-machine-flag machine)))
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg continue) (label after-pair?))
+           (goto (label pair?))
+           after-pair?)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code))
+       (flag (get-machine-flag machine)))
   (start-machine machine)
   (test-eqv (get-register-contents flag) 0))
 
 ;;; Test car: valid pair
-(let* ((max-num-pairs 4)
-       (code `(,@(init max-num-pairs)
-               (goto (label start))
-               ,@(memory-management-defs max-num-pairs)
-               start
-               (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-               (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
-               (assign (reg continue) (label after-cons))
-               (goto (label cons))
-               after-cons
-               (assign (reg continue) (label after-car))
-               (goto (label car))
-               after-car))
-      (machine (make-machine-load-text 8 8 code))
-      (rax (get-machine-register machine 3)))
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           (assign (reg continue) (label after-cons))
+           (goto (label cons))
+           after-cons
+           (assign (reg continue) (label after-car))
+           (goto (label car))
+           after-car)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code))
+       (rax (get-machine-register machine rax)))
   (start-machine machine)
   (test-eqv (get-register-contents rax) (logior number-tag 1)))
 
 ;;; Test car: invalid pair
-(let* ((max-num-pairs 4)
-       (code `(,@(init max-num-pairs)
-               (goto (label start))
-               ,@(memory-management-defs max-num-pairs)
-               start
-               (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-               (assign (reg continue) (label after-car))
-               (goto (label car))
-               after-car))
-      (machine (make-machine-load-text 8 8 code))
-      (rax (get-machine-register machine 3)))
+(let* ((code
+        (wrap-code
+         test-max-num-pairs
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg continue) (label after-car))
+           (goto (label car))
+           after-car)))
+       (machine (make-machine-load-text test-num-registers test-memory-size code)))
   (test-error #t (start-machine machine)))
 
 (test-end "asm-interpreter-test")
