@@ -501,31 +501,29 @@
 
 ;;; Mem-load
 
-;;; Slot may be a constant or from a register
+;;; Slot may be a primitive or operator expression, but not a label.
 (define (make-mem-load inst machine labels)
-  (let ((pc (get-machine-pc machine))
+  (let* ((pc (get-machine-pc machine))
         (memory (get-machine-memory machine))
         (reg (get-machine-register machine (register-exp-reg (mem-load-reg inst))))
-        (slot-exp (mem-load-slot inst)))
-    (cond ((register-exp? slot-exp)
-           ;; Load slot from register at runtime
-           (let ((slot-reg (get-machine-register machine (register-exp-reg slot-exp))))
-             (lambda ()
-               (set-register-contents! reg (get-memory memory (get-register-contents slot-reg)))
-               (advance-pc pc))))
-          ((constant-exp? slot-exp)
-           (let ((slot (constant-exp-value slot-exp)))
-             (lambda ()
-               (set-register-contents! reg (get-memory memory slot))
-               (advance-pc pc))))
-          (else
-           (error "Bad MEM-LOAD instruction" inst)))))
+        (slot-exp (mem-load-slot-exp inst))
+        (slot-proc
+         (cond ((operation-exp? slot-exp)
+                (make-operation-exp slot-exp machine labels))
+               ((and (pair? slot-exp)
+                     (or (constant-exp? (car slot-exp))
+                         (register-exp? (car slot-exp))))
+                (make-primitive-exp (car slot-exp) machine labels))
+               (else "Bad MEM-LOAD instruction" inst))))
+    (lambda ()
+      (set-register-contents! reg (get-memory memory (slot-proc)))
+      (advance-pc pc))))
 
 (define (mem-load-reg inst)
   (cadr inst))
 
-(define (mem-load-slot inst)
-  (caddr inst))
+(define (mem-load-slot-exp inst)
+  (cddr inst))
 
 ;;; Stack push
 
@@ -735,6 +733,14 @@
 (let ((machine
        (make-machine-load-text 1 8 '((mem-store (const 0) (const 10))
                                      (mem-load (reg 0) (const 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
+
+;;; Test mem-load: slot operator expression
+(let ((machine
+       (make-machine-load-text 1 8 '((stack-push (const 10))
+                                     (stack-push (const 15))
+                                     (mem-load (reg 0) (op +) (reg sp) (const 2))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
 
