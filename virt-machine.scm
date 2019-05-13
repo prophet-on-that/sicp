@@ -53,8 +53,7 @@
 
 ;;; Machine
 
-;;; User programs can interact directly with REGISTERS, SP and MEMORY, but
-;;; only indirectly with the PC and FLAG registers.
+;;; User programs can interact directly with all registers except FLAG.
 (define-public (make-machine n-registers n-memory-slots)
   (let ((pc (make-register))
         (flag (make-register))
@@ -94,6 +93,7 @@
 
     (define (get-register reg)
       (cond ((eq? reg 'sp) sp)
+            ((eq? reg 'pc) pc)
             ((number? reg)
              (vector-ref registers reg))
             (else
@@ -107,7 +107,6 @@
              (start))
             ((eq? message 'install-instruction-sequence!)
              install-instruction-sequence!)
-            ((eq? message 'get-pc) pc)
             ((eq? message 'get-flag) flag)
             ((eq? message 'get-sp) sp)
             ((eq? message 'get-registers) registers)
@@ -135,9 +134,6 @@
 
 (define-public (install-machine-instruction-sequence! machine insts)
   ((machine 'install-instruction-sequence!) insts))
-
-(define-public (get-machine-pc machine)
-  (machine 'get-pc))
 
 (define-public (get-machine-flag machine)
   (machine 'get-flag))
@@ -301,7 +297,7 @@
              (if (operation-exp? value-exp)
                  (make-operation-exp value-exp machine labels)
                  (make-primitive-exp (car value-exp) machine labels)))
-            (pc (get-machine-pc machine)))
+            (pc (get-machine-register machine 'pc)))
         (lambda ()
           (set-register-contents! target (value-proc))
           (advance-pc pc))))))
@@ -386,7 +382,7 @@
         (let ((condition-proc
                (make-operation-exp condition machine labels))
               (flag (get-machine-flag machine))
-              (pc (get-machine-pc machine)))
+              (pc (get-machine-register machine 'pc)))
           (lambda ()
             (set-register-contents! flag (if (condition-proc) 1 0))
             (advance-pc pc)))
@@ -402,7 +398,7 @@
     (if (label-exp? dest)
         (let ((insts (lookup-label labels (label-exp-label dest)))
               (flag (get-machine-flag machine))
-              (pc (get-machine-pc machine)))
+              (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (= 0 (get-register-contents flag))
                 (set-register-contents! pc insts)
@@ -419,7 +415,7 @@
     (if (label-exp? dest)
         (let ((insts (lookup-label labels (label-exp-label dest)))
               (flag (get-machine-flag machine))
-              (pc (get-machine-pc machine)))
+              (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (not (= 0 (get-register-contents flag)))
                 (set-register-contents! pc insts)
@@ -435,12 +431,12 @@
   (let ((dest (goto-dest inst)))
     (cond ((label-exp? dest)
            (let ((insts (lookup-label labels (label-exp-label dest)))
-                 (pc (get-machine-pc machine)))
+                 (pc (get-machine-register machine 'pc)))
              (lambda ()
                (set-register-contents! pc insts))))
           ((register-exp? dest)
            (let ((reg (get-machine-register machine (register-exp-reg dest)))
-                 (pc (get-machine-pc machine)))
+                 (pc (get-machine-register machine 'pc)))
              (lambda ()
                (set-register-contents! pc (get-register-contents reg)))))
           (else
@@ -462,7 +458,7 @@
                  (error "Bad MEM-STORE instruction -- ASSEMBLE" inst))))
          (val-proc (make-primitive-exp (mem-store-val inst) machine labels))
          (memory (get-machine-memory machine))
-         (pc (get-machine-pc machine)))
+         (pc (get-machine-register machine 'pc)))
     (lambda ()
       (set-memory! memory (slot-proc) (val-proc))
       (advance-pc pc))))
@@ -477,7 +473,7 @@
 
 ;;; Slot may be a primitive or operator expression, but not a label.
 (define (make-mem-load inst machine labels)
-  (let* ((pc (get-machine-pc machine))
+  (let* ((pc (get-machine-register machine 'pc))
         (memory (get-machine-memory machine))
         (reg (get-machine-register machine (register-exp-reg (mem-load-reg inst))))
         (slot-exp (mem-load-slot-exp inst))
