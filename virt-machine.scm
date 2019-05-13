@@ -454,44 +454,18 @@
 ;;; The MEM-STORE instruciton supports storing constant expressions
 ;;; (not labels) or values in registers in memory.
 (define (make-mem-store inst machine labels)
-  (let ((slot (mem-store-slot inst))
-        (val (mem-store-val inst))
-        (memory (get-machine-memory machine))
-        (pc (get-machine-pc machine)))
-    (cond ((and (register-exp? slot)
-                (register-exp? val))
-           ;; Read both slot and val at runtime
-           (let ((slot-reg (get-machine-register machine (register-exp-reg slot)))
-                 (val-reg (get-machine-register machine (register-exp-reg val))))
-             (lambda ()
-               (set-memory! memory (get-register-contents slot-reg) (get-register-contents val-reg))
-               (advance-pc pc))))
-          ((and (register-exp? slot)
-                (constant-exp? val))
-           ;; Read slot at runtime, value is constant
-           (let ((slot-reg (get-machine-register machine (register-exp-reg slot)))
-                 (value (constant-exp-value val)))
-             (lambda ()
-               (set-memory! memory (get-register-contents slot-reg) value)
-               (advance-pc pc))))
-          ((and (constant-exp? slot)
-                (register-exp? val))
-           ;; Read value at runtime, slot is constant
-           (let ((slot-value (constant-exp-value slot))
-                 (val-reg (get-machine-register machine (register-exp-reg val))))
-             (lambda ()
-               (set-memory! memory slot-value (get-register-contents val-reg))
-               (advance-pc pc))))
-          ((and (constant-exp? slot)
-                (constant-exp? val))
-           ;; Both slot and val are constant
-           (let ((slot-val (constant-exp-value slot))
-                 (value (constant-exp-value val)))
-             (lambda ()
-               (set-memory! memory slot-val value)
-               (advance-pc pc))))
-          (else
-           (error "Bad MEM-STORE instruction" inst)))))
+  (let* ((slot-exp (mem-store-slot inst))
+         (slot-proc
+          (cond ((not (label-exp? slot-exp))
+                 (make-primitive-exp slot-exp machine labels))
+                (else
+                 (error "Bad MEM-STORE instruction -- ASSEMBLE" inst))))
+         (val-proc (make-primitive-exp (mem-store-val inst) machine labels))
+         (memory (get-machine-memory machine))
+         (pc (get-machine-pc machine)))
+    (lambda ()
+      (set-memory! memory (slot-proc) (val-proc))
+      (advance-pc pc))))
 
 (define (mem-store-slot inst)
   (cadr inst))
@@ -716,6 +690,12 @@
   (test-eqv (get-memory (get-machine-memory machine) 2) 1))
 
 ;;; Test mem-store: slot and val constant
+(let ((machine
+       (make-machine-load-text 1 8 '((mem-store (const 2) (const 10))))))
+  (start-machine machine)
+  (test-eqv (get-memory (get-machine-memory machine) 2) 10))
+
+;;; Test mem-store: val label
 (let ((machine
        (make-machine-load-text 1 8 '((mem-store (const 2) (const 10))))))
   (start-machine machine)
