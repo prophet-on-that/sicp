@@ -58,6 +58,7 @@
   (let ((pc (make-register))
         (flag (make-register))
         (sp (make-register))
+        (bp (make-register))
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
@@ -94,6 +95,7 @@
     (define (get-register reg)
       (cond ((eq? reg 'sp) sp)
             ((eq? reg 'pc) pc)
+            ((eq? reg 'bp) bp)
             ((number? reg)
              (vector-ref registers reg))
             (else
@@ -124,8 +126,7 @@
      registers)
 
     ;; Assign sp
-    (if (> n-memory-slots 0)
-        (set-register-contents! sp (1- n-memory-slots)))
+    (set-register-contents! sp n-memory-slots)
 
     dispatch))
 
@@ -195,22 +196,13 @@
                                (alias-target next-inst)
                                aliases)
                         cont)
-            (preprocess (cdr text)
-                        aliases
-                        (lambda (insts)
-                          (let ((insts-to-insert
-                                 (cond ((tagged-list? next-inst 'stack-push)
-                                        `((mem-store (reg sp) ,(stack-push-value next-inst))
-                                          (assign (reg sp) (op -) (reg sp) (const 1))))
-                                       ((tagged-list? next-inst 'stack-pop)
-                                        `((assign (reg sp) (op +) (reg sp) (const 1))
-                                          (mem-load ,(stack-pop-target next-inst) (reg sp))))
-                                       (else (list next-inst)))))
-                            (cont (append
-                                   (map (lambda (inst)
-                                          (replace-aliases inst aliases))
-                                        insts-to-insert)
-                                        insts)))))))))
+            (preprocess
+             (cdr text)
+             aliases
+             (lambda (insts)
+               (cont
+                (cons (replace-aliases next-inst aliases)
+                      insts))))))))
 
 (define (replace-aliases inst aliases)
   (if (list? inst)
@@ -281,6 +273,14 @@
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
          (make-mem-load inst machine labels))
+        ((eq? (car inst) 'stack-push)
+         (make-stack-push inst machine labels))
+        ((eq? (car inst) 'stack-pop)
+         (make-stack-pop inst machine labels))
+        ((eq? (car inst) 'call)
+         (make-call inst machine labels))
+        ((eq? (car inst) 'ret)
+         (make-ret inst machine labels))
         ((eq? (car inst) 'error)
          (make-error-instruction inst machine labels))
         (else
@@ -497,13 +497,77 @@
 
 ;;; Stack push
 
+(define (make-stack-push inst machine labels)
+  (let ((sp (get-machine-register machine 'sp))
+        (proc (make-primitive-exp (stack-push-value inst) machine labels))
+        (memory (get-machine-memory machine))
+        (pc (get-machine-register machine 'pc)))
+    (lambda ()
+      (set-register-contents! sp (1- (get-register-contents sp)))
+      (set-memory! memory (get-register-contents sp) (proc))
+      (advance-pc pc))))
+
 (define (stack-push-value inst)
   (cadr inst))
 
 ;;; Stack pop
 
+(define (make-stack-pop inst machine labels)
+  (let ((sp (get-machine-register machine 'sp))
+        (memory (get-machine-memory machine))
+        (pc (get-machine-register machine 'pc))
+        (target-exp (stack-pop-target inst)))
+    (if (and (pair? (cdr inst))
+             (register-exp? target-exp))
+        (let ((target
+               (get-machine-register machine (register-exp-reg target-exp))))
+          (lambda ()
+            (set-register-contents! target
+                                    (get-memory memory (get-register-contents sp)))
+            (set-register-contents! sp
+                                    (1+ (get-register-contents sp)))
+            (advance-pc pc)))
+        (error "Bad STACK-POP instruction" inst))))
+
 (define (stack-pop-target inst)
   (cadr inst))
+
+;;; Call
+
+(define (make-call inst machine labels)
+  (let ((pc (get-machine-register machine 'pc))
+        (memory (get-machine-memory machine))
+        (sp (get-machine-register machine 'sp))
+        (bp (get-machine-register machine 'bp))
+        (next-inst (lookup-label labels (call-target inst))))
+    (lambda ()
+      (let ((current-sp (get-register-contents sp)))
+        (set-memory! memory (1- current-sp) (cdr (get-register-contents pc)))
+        (set-memory! memory (- current-sp 2) (get-register-contents bp))
+        (set-register-contents! sp (- current-sp 2))
+        (set-register-contents! bp (- current-sp 2))
+        (set-register-contents! pc next-inst)))))
+
+(define (call-target inst)
+  (cadr inst))
+
+;;; Ret
+
+(define (make-ret inst machine labels)
+  (let ((pc (get-machine-register machine 'pc))
+        (memory (get-machine-memory machine))
+        (sp (get-machine-register machine 'sp))
+        (bp (get-machine-register machine 'bp)))
+    (lambda ()
+      (set-register-contents! sp
+                              (get-register-contents bp))
+      (let ((current-sp (get-register-contents sp)))
+        (set-register-contents! bp
+                                (get-memory memory current-sp))
+        (set-register-contents! pc
+                                (get-memory memory (1+ current-sp)))
+        (set-register-contents! sp
+                                (+ current-sp 2))))))
 
 ;;; Error
 
@@ -712,21 +776,21 @@
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
 
-;;; Test mem-load: slot operator expression
-(let ((machine
-       (make-machine-load-text 1 8 '((stack-push (const 10))
-                                     (stack-push (const 15))
-                                     (mem-load (reg 0) (op +) (reg sp) (const 2))))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
-
 ;;; Test stack push
 (let ((machine
        (make-machine-load-text 1 8 '((assign (reg 0) (const 1))
                                      (stack-push (reg 0))))))
   (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 6)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 7)
   (test-eqv (get-memory (get-machine-memory machine) 7) 1))
+
+;;; Test mem-load: slot operator expression
+(let ((machine
+       (make-machine-load-text 1 8 '((stack-push (const 10))
+                                     (stack-push (const 15))
+                                     (mem-load (reg 0) (op +) (reg sp) (const 1))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 10))
 
 ;;; Test stack pop
 (let ((machine
@@ -734,7 +798,7 @@
                                      (stack-push (reg 0))
                                      (stack-pop (reg 1))))))
   (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 7)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 8)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
 
 ;;; Test alias
@@ -746,6 +810,31 @@
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 0)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
+
+;;; Test call and ret
+(let ((machine
+       (make-machine-load-text 4 16 '((goto (label start))
+                                      sub
+                                      (assign (reg 0) (const 1))
+                                      (ret)
+                                      start
+                                      (call sub)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
+
+(let ((machine
+       (make-machine-load-text 4 16 '((goto (label start))
+                                      sub
+                                      (mem-load (reg 0) (op +) (reg bp) (const 2)) ; arg 1
+                                      (mem-load (reg 1) (op +) (reg bp) (const 3)) ; arg 2
+                                      (assign (reg 0) (op +) (reg 0) (reg 1))
+                                      (ret)
+                                      start
+                                      (stack-push (const 2))
+                                      (stack-push (const 1))
+                                      (call sub)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 3))
 
 ;;; Test error
 (let ((machine
@@ -801,5 +890,33 @@
   (set-register-contents! reg0 5)
   (start-machine machine)
   (test-eqv (get-register-contents reg1) 120))
+
+;;; Test factorial recursive implementation
+(let* ((code
+        ;; Input: n in register 0
+        ;; Ouput: n! in register 0
+        '((goto (label start))
+          factorial
+          (mem-load (reg 0) (op +) (reg bp) (const 2)) ; n
+          (test (op <=) (reg 0) (const 1))
+          (jne (label base-case))
+          (stack-push (reg 0))          ; save n
+          (assign (reg 0) (op -) (reg 0) (const 1))
+          (stack-push (reg 0))
+          (call factorial)
+          (assign (reg 1) (reg 0))      ; (n - 1)!
+          (stack-pop (reg 0))
+          (stack-pop (reg 0))                     ; n
+          (assign (reg 0) (op *) (reg 0) (reg 1)) ; n!
+          base-case
+          (ret)                         ; return n
+          start
+          (stack-push (reg 0))
+          (call factorial)))
+       (machine (make-machine-load-text 4 512 code))
+       (reg0 (get-machine-register machine 0)))
+  (set-register-contents! reg0 5)
+  (start-machine machine)
+  (test-eqv (get-register-contents reg0) 120))
 
 (test-end "virt-machine-test")
