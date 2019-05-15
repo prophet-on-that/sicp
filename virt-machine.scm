@@ -54,6 +54,10 @@
 ;;; Machine
 
 ;;; User programs can interact directly with all registers except FLAG.
+;;;
+;;; Calling convention: push arguments in reverse order and CALL,
+;;; first argument in [bp + 2] etc. Caller must save register 0 as
+;;; used for return value (callee must save all other registers).
 (define-public (make-machine n-registers n-memory-slots)
   (let ((pc (make-register))
         (flag (make-register))
