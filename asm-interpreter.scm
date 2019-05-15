@@ -140,20 +140,22 @@
                             (* test-max-num-pairs 4)
                             test-stack-size))
 
+(define (make-test-machine code)
+  (make-machine-load-text
+   test-num-registers
+   test-memory-size
+   (wrap-code test-max-num-pairs code)))
+
 (test-begin "asm-interpreter-test")
 
 ;;; Test cons
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call cons)))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cons))))
        (rax (get-machine-register machine rax))
        (memory (get-machine-memory machine)))
   (start-machine machine)
@@ -162,94 +164,70 @@
 
 ;;; Test pair?: true
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-            (stack-push (reg rax))
-            (call cons)
-            (stack-push (reg rax))
-            (call pair?)))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+           (stack-push (reg rax))
+           (call cons)
+           (stack-push (reg rax))
+           (call pair?))))
        (flag (get-machine-flag machine)))
   (start-machine machine)
   (test-eqv (get-register-contents flag) 1))
 
 ;;; Test pair?: false
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call pair?)))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call pair?))))
        (flag (get-machine-flag machine)))
   (start-machine machine)
   (test-eqv (get-register-contents flag) 0))
 
 ;;; Test car: valid pair
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-            (stack-push (reg rax))
-            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call cons)
-            (stack-push (reg rax))
-            (call car)))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+           (stack-push (reg rax))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cons)
+           (stack-push (reg rax))
+           (call car))))
        (rax (get-machine-register machine rax)))
   (start-machine machine)
   (test-eqv (get-register-contents rax) (logior number-tag 1)))
 
 ;;; Test car: invalid pair
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call car))))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call car)))))
   (test-error #t (start-machine machine)))
 
 ;;; Test cdr: valid pair
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-            (stack-push (reg rax))
-            (assign (reg rbx) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call cons)
-            (stack-push (reg rax))
-            (call cdr)))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+           (stack-push (reg rax))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cons)
+           (stack-push (reg rax))
+           (call cdr))))
        (rax (get-machine-register machine rax)))
   (start-machine machine)
   (test-eqv (get-register-contents rax) (logior number-tag 2)))
 
 ;;; Test cdr: invalid pair
 (let* ((machine
-        (make-machine-load-text
-         test-num-registers
-         test-memory-size
-         (wrap-code
-          test-max-num-pairs
-          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-            (stack-push (reg rax))
-            (call cdr))))))
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cdr)))))
   (test-error #t (start-machine machine)))
 
 (test-end "asm-interpreter-test")
