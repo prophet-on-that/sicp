@@ -120,7 +120,21 @@
     (ret)
     cdr-invalid-arg
     (error (const 2))
-    ))
+
+    gc
+    ;; Push all data registers to the stack, so that the stack holds
+    ;; all pair references
+    ,@(map
+       (lambda (i)
+         `(stack-push (reg ,i)))
+       (range 0 max-num-pairs))
+
+    ;; Restore pushed registers
+    ,@(map
+       (lambda (i)
+         `(stack-pop (reg ,i)))
+       (reverse (range 0 max-num-pairs)))
+    (ret)))
 
 ;;; Utilities
 
@@ -130,6 +144,13 @@
     ,@(memory-management-defs max-num-pairs)
     start
     ,@code))
+
+(define (range min max)
+  "Integer range between MIN (inclusive) and MAX (exclusive)."
+  (if (>= min max)
+      '()
+      (cons min
+            (range (1+ min) max))))
 
 ;;; Test suite
 
