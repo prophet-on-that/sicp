@@ -519,19 +519,25 @@
 (define (make-stack-pop inst machine labels)
   (let ((sp (get-machine-register machine 'sp))
         (memory (get-machine-memory machine))
-        (pc (get-machine-register machine 'pc))
-        (target-exp (stack-pop-target inst)))
-    (if (and (pair? (cdr inst))
-             (register-exp? target-exp))
-        (let ((target
-               (get-machine-register machine (register-exp-reg target-exp))))
-          (lambda ()
-            (set-register-contents! target
-                                    (get-memory memory (get-register-contents sp)))
-            (set-register-contents! sp
-                                    (1+ (get-register-contents sp)))
-            (advance-pc pc)))
-        (error "Bad STACK-POP instruction" inst))))
+        (pc (get-machine-register machine 'pc)))
+    (cond ((and (pair? (cdr inst))
+                (register-exp? target-exp))
+           (let* ((target-exp (stack-pop-target inst))
+                  (target
+                   (get-machine-register machine (register-exp-reg target-exp))))
+             (lambda ()
+               (set-register-contents! target
+                                       (get-memory memory (get-register-contents sp)))
+               (set-register-contents! sp
+                                       (1+ (get-register-contents sp)))
+               (advance-pc pc))))
+          ((null? (cdr inst))
+           (lambda ()
+             (set-register-contents! sp
+                                     (1+ (get-register-contents sp)))
+             (advance-pc pc)))
+          (else
+           (error "Bad STACK-POP instruction" inst)))))
 
 (define (stack-pop-target inst)
   (cadr inst))
@@ -805,6 +811,13 @@
   (test-eqv (get-register-contents (get-machine-register machine 'sp)) 8)
   (test-eqv (get-register-contents (get-machine-register machine 1)) 1))
 
+;;; Test stack pop, discarding result
+(let ((machine
+       (make-machine-load-text 2 8 '((stack-push (const 0))
+                                     (stack-pop)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'sp)) 8))
+
 ;;; Test alias
 (let ((machine
        (make-machine-load-text 2 0 '((alias 0 n)
@@ -909,8 +922,8 @@
           (stack-push (reg 0))
           (call factorial)
           (assign (reg 1) (reg 0))      ; (n - 1)!
-          (stack-pop (reg 0))
-          (stack-pop (reg 0))                     ; n
+          (stack-pop)
+          (stack-pop)                             ; n
           (assign (reg 0) (op *) (reg 0) (reg 1)) ; n!
           base-case
           (ret)                         ; return n
