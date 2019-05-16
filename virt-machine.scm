@@ -911,31 +911,37 @@
   (test-eqv (get-register-contents reg1) 120))
 
 ;;; Test factorial recursive implementation
-(let* ((code
-        ;; Input: n in register 0
-        ;; Ouput: n! in register 0
-        '((goto (label start))
+(let ((machine
+       (make-machine-load-text
+        4
+        512
+        '((alias 0 ret)
+          (alias 1 rax)
+          (alias 2 rbx)
+          (goto (label start))
           factorial
-          (mem-load (reg 0) (op +) (reg bp) (const 2)) ; n
-          (test (op <=) (reg 0) (const 1))
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; n
+          (test (op <=) (reg rax) (const 1))
           (jne (label base-case))
-          (stack-push (reg 0))          ; save n
-          (assign (reg 0) (op -) (reg 0) (const 1))
-          (stack-push (reg 0))
+          (assign (reg rbx) (op -) (reg rax) (const 1)) ; n - 1
+          (stack-push (reg rbx))
           (call factorial)
-          (assign (reg 1) (reg 0))      ; (n - 1)!
           (stack-pop)
-          (stack-pop)                             ; n
-          (assign (reg 0) (op *) (reg 0) (reg 1)) ; n!
+          (assign (reg rbx) (reg ret)) ; (n - 1)!
+          (assign (reg ret) (op *) (reg rax) (reg rbx))
+          (goto (label factorial-end))
           base-case
+          (assign (reg ret) (reg rax))
+          factorial-end
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
           (ret)                         ; return n
           start
-          (stack-push (reg 0))
-          (call factorial)))
-       (machine (make-machine-load-text 4 512 code))
-       (reg0 (get-machine-register machine 0)))
-  (set-register-contents! reg0 5)
+          (stack-push (const 5))
+          (call factorial)))))
   (start-machine machine)
-  (test-eqv (get-register-contents reg0) 120))
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 120))
 
 (test-end "virt-machine-test")
