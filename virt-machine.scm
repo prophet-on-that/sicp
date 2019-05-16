@@ -589,7 +589,7 @@
     (if (constant-exp? error-code-exp)
         (let ((error-code (constant-exp-value error-code-exp)))
           (lambda ()
-            (error "The program has exited with an error." error-code)))
+            (error "The program has exited with an error" error-code)))
         (error "Invalid ERROR instruction" inst))))
 
 (define (error-inst-code inst)
