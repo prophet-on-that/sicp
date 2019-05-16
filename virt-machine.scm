@@ -524,10 +524,9 @@
         (memory (get-machine-memory machine))
         (pc (get-machine-register machine 'pc)))
     (cond ((and (pair? (cdr inst))
-                (register-exp? target-exp))
-           (let* ((target-exp (stack-pop-target inst))
-                  (target
-                   (get-machine-register machine (register-exp-reg target-exp))))
+                (register-exp? (stack-pop-target inst)))
+           (let ((target
+                   (get-machine-register machine (register-exp-reg (stack-pop-target inst)))))
              (lambda ()
                (set-register-contents! target
                                        (get-memory memory (get-register-contents sp)))
