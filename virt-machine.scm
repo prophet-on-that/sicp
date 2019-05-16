@@ -294,17 +294,20 @@
   (set-register-contents! pc (cdr (get-register-contents pc))))
 
 (define (make-assign inst machine labels)
-  (let ((reg-name (register-exp-reg (assign-reg inst))))
-    (let ((target (get-machine-register machine reg-name))
-          (value-exp (assign-value-exp inst)))
-      (let ((value-proc
-             (if (operation-exp? value-exp)
-                 (make-operation-exp value-exp machine labels)
-                 (make-primitive-exp (car value-exp) machine labels)))
-            (pc (get-machine-register machine 'pc)))
-        (lambda ()
-          (set-register-contents! target (value-proc))
-          (advance-pc pc))))))
+  (if (register-exp? (assign-reg inst))
+      (let ((reg-name (register-exp-reg (assign-reg inst))))
+        (let ((target (get-machine-register machine reg-name))
+              (value-exp (assign-value-exp inst)))
+          (let ((value-proc
+                 (if (operation-exp? value-exp)
+                     (make-operation-exp value-exp machine labels)
+                     (make-primitive-exp (car value-exp) machine labels)))
+                (pc (get-machine-register machine 'pc)))
+            (lambda ()
+              (set-register-contents! target (value-proc))
+              (advance-pc pc)))))
+      (error
+       "Bad ASSIGN instruction -- ASSEMBLE" inst)))
 
 (define (assign-reg assign-instruction)
   (cadr assign-instruction))
