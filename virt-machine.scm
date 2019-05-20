@@ -410,7 +410,7 @@
             (if (= 0 (get-register-contents flag))
                 (set-register-contents! pc insts)
                 (advance-pc pc))))
-        (error "Bad JEZ instruction -- ASSEMBLE"))))
+        (error "Bad JEZ instruction -- ASSEMBLE" inst))))
 
 (define (jez-dest inst)
   (cadr inst))
@@ -427,7 +427,7 @@
             (if (not (= 0 (get-register-contents flag)))
                 (set-register-contents! pc insts)
                 (advance-pc pc))))
-        (error "Bad JNE instruction -- ASSEMBLE"))))
+        (error "Bad JNE instruction -- ASSEMBLE" inst))))
 
 (define (jne-dest inst)
   (cadr inst))
@@ -447,7 +447,7 @@
              (lambda ()
                (set-register-contents! pc (get-register-contents reg)))))
           (else
-           (error "Bad GOTO instruction -- ASSEMBLE")))))
+           (error "Bad GOTO instruction -- ASSEMBLE" inst)))))
 
 (define (goto-dest inst)
   (cadr inst))
