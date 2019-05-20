@@ -28,6 +28,7 @@
 ;;; Exit codes
 ;;; 1 - attempting to take CAR of a non-pair
 ;;; 2 - attempting to take CDR of a non-pair
+;;; 3 - attempting to set the CAR of a non-pair
 
 (define (init max-num-pairs)
   `((alias ,ret ret)
@@ -105,6 +106,28 @@
     (ret)
     car-invalid-arg
     (error (const 1))
+
+    ;; Args:
+    ;; 0 - Pair to modify
+    ;; 1 - Value to set in CAR
+    set-car!
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (stack-push (reg rax))
+    (call pair?)
+    (jez (label set-car!-invalid-arg))
+    (stack-pop)
+    (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pairs array
+    (mem-load (reg rbx) (const ,the-cars-pointer))
+    (assign (reg rax) (op +) (reg rax) (reg rbx)) ; Memory address of CAR of pair
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-store (reg rax) (reg rbx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+    set-car!-invalid-arg
+    (error (const 3))
 
     ;; Args:
     ;; 0 - Pair from which to retrieve cdr
@@ -267,6 +290,38 @@
            (stack-push (reg rax))
            (call cdr)
            (stack-pop)))))
+  (test-error #t (start-machine machine)))
+
+;;; Test set-car!: valid pair
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+           (stack-push (reg rax))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cons)
+           (assign (reg sp) (op +) (reg sp) (const 2))
+           (assign (reg rax) (reg ret))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
+           (stack-push (reg rbx))
+           (stack-push (reg rax))
+           (call set-car!)
+           (assign (reg sp) (op +) (reg sp) (const 2))
+           (stack-push (reg rax))
+           (call car)
+           (stack-pop))))
+       (ret (get-machine-register machine ret)))
+  (start-machine machine)
+  (test-eqv (get-register-contents ret) (logior number-tag 3)))
+
+;;; Test set-car!: invalid pair
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (stack-push (reg rax))
+           (call set-car!)
+           (assign (reg sp) (op +) (reg sp) (const 2))))))
   (test-error #t (start-machine machine)))
 
 (test-end "asm-interpreter-test")
