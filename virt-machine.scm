@@ -7,13 +7,22 @@
 
 ;;; Register
 
-(define (make-register)
-  (let ((contents '*unassigned*))
+(define (make-register name)
+  (let ((contents '*unassigned*)
+        (trace #f))
+
+    (define (set-trace! b)
+      (set! trace b))
+
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set!)
              (lambda (val)
-               (set! contents val)))
+               (let ((prev contents))
+                 (set! contents val)
+                 (if trace
+                     (format #t "trace: reg ~a: set to ~a (previous: ~a)\n" name val prev)))))
+            ((eq? message 'set-trace!) set-trace!)
             (else
              (error "Unknown message -- REGISTER" message))))
     dispatch))
@@ -23,6 +32,9 @@
 
 (define-public (set-register-contents! register val)
   ((register 'set!) val))
+
+(define-public (set-register-trace register b)
+  ((register 'set-trace!) b))
 
 ;;; Memory
 
@@ -59,10 +71,10 @@
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
 (define-public (make-machine n-registers n-memory-slots)
-  (let ((pc (make-register))
-        (flag (make-register))
-        (sp (make-register))
-        (bp (make-register))
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (sp (make-register 'sp))
+        (bp (make-register 'bp))
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
@@ -123,13 +135,16 @@
             ((eq? message 'get-memory) memory)
             ((eq? message 'get-ops) ops)
             ((eq? message 'set-trace) set-trace)
+            ((eq? message 'set-register-trace)
+             (lambda (register b)
+               (set-register-trace (get-register register) b)))
             (else
              (error "Unrecognised message -- MACHINE" message))))
 
     ;; Assign registers
     (vector-for-each
      (lambda (i _)
-       (vector-set! registers i (make-register)))
+       (vector-set! registers i (make-register i)))
      registers)
 
     ;; Assign sp
@@ -160,6 +175,9 @@
 
 (define-public (set-machine-trace machine b)
   ((machine 'set-trace) b))
+
+(define-public (set-machine-register-trace machine register b)
+  ((machine 'set-register-trace) register b))
 
 ;;; Assembler
 
