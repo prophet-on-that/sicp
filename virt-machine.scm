@@ -38,8 +38,16 @@
 
 ;;; Memory
 
+(define initial-memory-value -1)
+
 (define (make-memory n-memory-slots)
   (let ((memory (make-vector n-memory-slots)))
+    (define (zero)
+      (vector-for-each
+       (lambda (i _)
+         (vector-set! memory i initial-memory-value))
+       memory))
+
     (define (dispatch message)
       (cond ((eq? message 'get)
              (lambda (k)
@@ -53,6 +61,7 @@
                         (< k n-memory-slots))
                    (vector-set! memory k val)
                    (error "Index out of range -- SET-MEMORY" k))))
+            ((eq? message 'zero) (zero))
             (else
              (error "Unknown message -- MEMORY" message))))
     dispatch))
@@ -63,7 +72,12 @@
 (define-public (get-memory memory slot)
   ((memory 'get) slot))
 
+(define-public (zero-memory! memory)
+  (memory 'zero))
+
 ;;; Machine
+
+(define initial-register-value -1)
 
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
@@ -91,8 +105,20 @@
               (list 'logior logior)))
         (trace #f))
 
-    (define (start)
+    (define (reset)
+      "Reset machine to initial state."
       (set-register-contents! pc instruction-sequence)
+      (set-register-contents! sp n-memory-slots)
+      (set-register-contents! flag 0)
+      (set-register-contents! bp initial-register-value)
+      (vector-for-each
+       (lambda (_ reg)
+         (set-register-contents! reg initial-register-value))
+       registers)
+      (zero-memory! memory))
+
+    (define (start)
+      (reset)
       (execute))
 
     (define (execute)
@@ -146,9 +172,6 @@
      (lambda (i _)
        (vector-set! registers i (make-register i)))
      registers)
-
-    ;; Assign sp
-    (set-register-contents! sp n-memory-slots)
 
     dispatch))
 
@@ -883,29 +906,28 @@
 
 ;;; Test factorial iterative implementation
 (let* ((code
-       ;; Assume register 0 holds n, output n! into register 1
-       '((assign (reg 1) (const 1))
-         before-test
-         (test (op <=) (reg 0) (const 1))
-         (jne (label after-loop))
-         (assign (reg 1) (op *) (reg 0) (reg 1))
-         (assign (reg 0) (op -) (reg 0) (const 1))
-         (goto (label before-test))
-         after-loop))
+       ;; Output n! into register 1
+        '((assign (reg 0) (const 5))    ; n
+          (assign (reg 1) (const 1))
+          before-test
+          (test (op <=) (reg 0) (const 1))
+          (jne (label after-loop))
+          (assign (reg 1) (op *) (reg 0) (reg 1))
+          (assign (reg 0) (op -) (reg 0) (const 1))
+          (goto (label before-test))
+          after-loop))
        (machine (make-machine-load-text 2 0 code))
-       (reg0 (get-machine-register machine 0))
        (reg1 (get-machine-register machine 1)))
-  (set-register-contents! reg0 5)
   (start-machine machine)
   (test-eqv (get-register-contents reg1) 120))
 
 ;;; Test factorial recursive implementation
 (let* ((code
-        ;; Input: n in register 0
         ;; Ouput: n! in register 1
         '((alias 0 n)
           (alias 1 ret)
           (alias 2 continue)
+          (assign (reg n) (const 5))
           (assign (reg continue) (label fact-end))
           factorial-test
           (test (op <=) (reg n) (const 1))
@@ -925,9 +947,7 @@
           (goto (reg continue))
           fact-end))
        (machine (make-machine-load-text 4 512 code))
-       (reg0 (get-machine-register machine 0))
        (reg1 (get-machine-register machine 1)))
-  (set-register-contents! reg0 5)
   (start-machine machine)
   (test-eqv (get-register-contents reg1) 120))
 
