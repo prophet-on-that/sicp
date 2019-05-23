@@ -108,7 +108,8 @@
               (list '>= >=)
               (list 'logand logand)
               (list 'logior logior)))
-        (trace #f))
+        (trace #f)
+        (call-stack-depth 0))
 
     (define (reset)
       "Reset machine to initial state."
@@ -120,7 +121,8 @@
        (lambda (_ reg)
          (set-register-contents! reg initial-register-value))
        registers)
-      (zero-memory! memory))
+      (zero-memory! memory)
+      (set! call-stack-depth 0))
 
     (define (start)
       (reset)
@@ -154,6 +156,12 @@
     (define (set-trace b)
       (set! trace b))
 
+    (define (inc-call-stack-depth!)
+      (set! call-stack-depth (1+ call-stack-depth)))
+
+    (define (dec-call-stack-depth!)
+      (set! call-stack-depth (1- call-stack-depth)))
+
     (define (dispatch message)
       (cond ((eq? message 'start)
              (start))
@@ -169,6 +177,9 @@
             ((eq? message 'set-register-trace)
              (lambda (register b)
                (set-register-trace (get-register register) b)))
+            ((eq? message 'inc-call-stack-depth!) (inc-call-stack-depth!))
+            ((eq? message 'dec-call-stack-depth!) (dec-call-stack-depth!))
+            ((eq? message 'get-call-stack-depth) call-stack-depth)
             (else
              (error "Unrecognised message -- MACHINE" message))))
 
@@ -215,6 +226,15 @@
 
 (define-public (set-machine-register-trace machine register b)
   ((machine 'set-register-trace) register b))
+
+(define-public (get-machine-call-stack-depth machine)
+  (machine 'get-call-stack-depth))
+
+(define-public (inc-machine-call-stack-depth! machine)
+  (machine 'inc-call-stack-depth!))
+
+(define-public (dec-machine-call-stack-depth! machine)
+  (machine 'dec-call-stack-depth!))
 
 ;;; Assembler
 
@@ -616,7 +636,8 @@
         (set-memory! memory (- current-sp 2) (get-register-contents bp))
         (set-register-contents! sp (- current-sp 2))
         (set-register-contents! bp (- current-sp 2))
-        (set-register-contents! pc next-inst)))))
+        (set-register-contents! pc next-inst)
+        (inc-machine-call-stack-depth! machine)))))
 
 (define (call-target inst)
   (cadr inst))
@@ -637,7 +658,8 @@
         (set-register-contents! pc
                                 (get-memory memory (1+ current-sp)))
         (set-register-contents! sp
-                                (+ current-sp 2))))))
+                                (+ current-sp 2))
+        (dec-machine-call-stack-depth! machine)))))
 
 ;;; Error
 
