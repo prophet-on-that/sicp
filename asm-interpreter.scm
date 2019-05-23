@@ -353,7 +353,7 @@
                    (format #f "n~d" val))
                   ((= tag broken-heart) "bh")
                   (else
-                   (format "~d/~d" (bit-extract tag 28 32) val)))
+                   (format #f "~d/~d" (bit-extract tag 28 32) val)))
             (format #f "~d" val)))
       (format #f "~a" obj)))
 
