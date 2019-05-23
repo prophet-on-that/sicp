@@ -293,12 +293,12 @@
     (mem-store (reg rcx) (reg ret))
     ;; Set CAR of old pair to broken heart
     (stack-push (const ,broken-heart))
-    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (call set-car!)
     (assign (reg sp) (op +) (reg sp) (const 2))
     ;; Set CDR of old pair to FREE-PAIR-POINTER
     (stack-push (reg rdx))
-    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (call set-cdr!)
     (assign (reg sp) (op +) (reg sp) (const 2))
     ;; Increment FREE-PAIR-POINTER
