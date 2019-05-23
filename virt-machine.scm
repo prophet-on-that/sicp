@@ -7,7 +7,10 @@
 
 ;;; Register
 
-(define (make-register name)
+(define (default-register-trace-renderer reg-name old new)
+  (format #f "reg ~a: set to ~a (previous: ~a)" reg-name new old))
+
+(define* (make-register name #:key (trace-renderer default-register-trace-renderer))
   (let ((contents '*unassigned*)
         (trace #f))
 
@@ -21,7 +24,9 @@
                (let ((prev contents))
                  (set! contents val)
                  (if trace
-                     (format #t "trace: reg ~a: set to ~a (previous: ~a)\n" name val prev)))))
+                     (format #t
+                             "trace: ~a\n"
+                             (trace-renderer name prev val))))))
             ((eq? message 'set-trace!) set-trace!)
             (else
              (error "Unknown message -- REGISTER" message))))
@@ -84,11 +89,11 @@
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define-public (make-machine n-registers n-memory-slots)
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer))
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
-        (sp (make-register 'sp))
-        (bp (make-register 'bp))
+        (sp (make-register 'sp #:trace-renderer register-trace-renderer))
+        (bp (make-register 'bp #:trace-renderer register-trace-renderer))
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
@@ -170,10 +175,12 @@
     ;; Assign registers
     (vector-for-each
      (lambda (i _)
-       (vector-set! registers i (make-register i)))
+       (vector-set! registers i (make-register i #:trace-renderer register-trace-renderer)))
      registers)
 
     dispatch))
+
+(export make-machine)
 
 (define-public (start-machine machine)
   (machine 'start))
@@ -640,11 +647,15 @@
 
 ;;; Utilities
 
-(define-public (make-machine-load-text n-registers n-memory-slots controller-text)
-  (let ((machine (make-machine n-registers n-memory-slots)))
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer))
+  (let ((machine (make-machine n-registers
+                               n-memory-slots
+                               #:register-trace-renderer register-trace-renderer)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
       machine)))
+
+(export make-machine-load-text)
 
 ;;; Test suite
 

@@ -342,6 +342,28 @@
       (cons min
             (range (1+ min) max))))
 
+(define (render-trace-value obj)
+  (if (number? obj)
+      (let ((tag (logand tag-mask obj))
+            (val (logand value-mask obj)))
+        (if (> tag 0)
+            (cond ((= tag pair-tag)
+                   (format #f "p~d" val))
+                  ((= tag number-tag)
+                   (format #f "n~d" val))
+                  ((= tag broken-heart) "bh")
+                  (else
+                   (format "~d/~d" (bit-extract tag 28 32) val)))
+            (format #f "~d" val)))
+      (format #f "~a" obj)))
+
+(define (register-trace-renderer reg-name old new)
+  (format #f
+          "reg ~a: set to ~a (previous ~a)"
+          reg-name
+          (render-trace-value new)
+          (render-trace-value old)))
+
 ;;; Test suite
 
 (define test-max-num-pairs 8)
@@ -355,7 +377,8 @@
   (make-machine-load-text
    test-num-registers
    test-memory-size
-   (wrap-code test-max-num-pairs test-memory-size code)))
+   (wrap-code test-max-num-pairs test-memory-size code)
+   #:register-trace-renderer register-trace-renderer))
 
 (test-begin "asm-interpreter-test")
 
