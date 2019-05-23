@@ -280,9 +280,6 @@
     (test (op =) (reg ret) (const ,broken-heart))
     (jne (label gc-relocate-pair-already-moved))
     ;; Relocate CAR of old pair to new memory
-    (stack-push (reg rbx))
-    (call car)
-    (stack-pop)
     (mem-load (reg rcx) (const ,new-cars-pointer))
     (mem-load (reg rdx) (const ,free-pair-pointer))
     (assign (reg rcx) (op +) (reg rcx) (reg rdx)) ; Offset into new-cars
@@ -292,7 +289,6 @@
     (call cdr)
     (stack-pop)
     (mem-load (reg rcx) (const ,new-cdrs-pointer))
-    (mem-load (reg rdx) (const ,free-pair-pointer))
     (assign (reg rcx) (op +) (reg rcx) (reg rdx)) ; Offset into new-cdrs
     (mem-store (reg rcx) (reg ret))
     ;; Set CAR of old pair to broken heart
