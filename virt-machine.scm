@@ -206,6 +206,13 @@
 (define-public (set-machine-trace machine b)
   ((machine 'set-trace) b))
 
+(define-public (set-machine-trace-all machine b)
+  (set-machine-trace machine b)
+  (vector-for-each
+   (lambda (_ reg)
+     (set-register-trace reg b))
+   (get-machine-registers machine)))
+
 (define-public (set-machine-register-trace machine register b)
   ((machine 'set-register-trace) register b))
 
