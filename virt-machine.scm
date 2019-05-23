@@ -5,6 +5,8 @@
              (srfi srfi-1)
              (sicp eval-utils))
 
+(define trace-function-call-depth 4)
+
 ;;; Register
 
 (define (default-register-trace-renderer reg-name old new)
@@ -20,12 +22,13 @@
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set!)
-             (lambda (val)
+             (lambda (val call-stack-depth)
                (let ((prev contents))
                  (set! contents val)
                  (if trace
                      (format #t
-                             "trace: ~a\n"
+                             "trace: ~v_~a\n"
+                             (* call-stack-depth trace-function-call-depth)
                              (trace-renderer name prev val))))))
             ((eq? message 'set-trace!) set-trace!)
             (else
@@ -35,8 +38,10 @@
 (define-public (get-register-contents register)
   (register 'get))
 
-(define-public (set-register-contents! register val)
-  ((register 'set!) val))
+(define* (set-register-contents! register val #:optional (call-stack-depth 0))
+  ((register 'set!) val call-stack-depth))
+
+(export set-register-contents!)
 
 (define-public (set-register-trace register b)
   ((register 'set-trace!) b))
@@ -134,10 +139,10 @@
             'done
             (let ((next-inst (car insts)))
               (if trace
-                  (begin
-                    (display "trace: ")
-                    (display (instruction-text next-inst))
-                    (newline)))
+                  (format #t
+                          "trace: ~v_~a\n"
+                          (* call-stack-depth trace-function-call-depth)
+                          (instruction-text next-inst)))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -369,7 +374,8 @@
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
 (define (advance-pc pc)
-  (set-register-contents! pc (cdr (get-register-contents pc))))
+  (set-register-contents! pc
+                          (cdr (get-register-contents pc))))
 
 (define (make-assign inst machine labels)
   (if (register-exp? (assign-reg inst))
@@ -382,7 +388,9 @@
                      (make-primitive-exp (car value-exp) machine labels)))
                 (pc (get-machine-register machine 'pc)))
             (lambda ()
-              (set-register-contents! target (value-proc))
+              (set-register-contents! target
+                                      (value-proc)
+                                      (get-machine-call-stack-depth machine))
               (advance-pc pc)))))
       (error
        "Bad ASSIGN instruction -- ASSEMBLE" inst)))
@@ -469,7 +477,9 @@
               (flag (get-machine-flag machine))
               (pc (get-machine-register machine 'pc)))
           (lambda ()
-            (set-register-contents! flag (if (condition-proc) 1 0))
+            (set-register-contents! flag
+                                    (if (condition-proc) 1 0)
+                                    (get-machine-call-stack-depth machine))
             (advance-pc pc)))
         (error "Bad TEST instruction -- ASSEMBLE" inst))))
 
@@ -486,7 +496,9 @@
               (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (= 0 (get-register-contents flag))
-                (set-register-contents! pc insts)
+                (set-register-contents! pc
+                                        insts
+                                        (get-machine-call-stack-depth machine))
                 (advance-pc pc))))
         (error "Bad JEZ instruction -- ASSEMBLE" inst))))
 
@@ -503,7 +515,9 @@
               (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (not (= 0 (get-register-contents flag)))
-                (set-register-contents! pc insts)
+                (set-register-contents! pc
+                                        insts
+                                        (get-machine-call-stack-depth machine))
                 (advance-pc pc))))
         (error "Bad JNE instruction -- ASSEMBLE" inst))))
 
@@ -518,12 +532,16 @@
            (let ((insts (lookup-label labels (label-exp-label dest)))
                  (pc (get-machine-register machine 'pc)))
              (lambda ()
-               (set-register-contents! pc insts))))
+               (set-register-contents! pc
+                                       insts
+                                       (get-machine-call-stack-depth machine)))))
           ((register-exp? dest)
            (let ((reg (get-machine-register machine (register-exp-reg dest)))
                  (pc (get-machine-register machine 'pc)))
              (lambda ()
-               (set-register-contents! pc (get-register-contents reg)))))
+               (set-register-contents! pc
+                                       (get-register-contents reg)
+                                       (get-machine-call-stack-depth machine)))))
           (else
            (error "Bad GOTO instruction -- ASSEMBLE" inst)))))
 
@@ -571,7 +589,9 @@
                 (make-primitive-exp (car slot-exp) machine labels))
                (else "Bad MEM-LOAD instruction" inst))))
     (lambda ()
-      (set-register-contents! reg (get-memory memory (slot-proc)))
+      (set-register-contents! reg
+                              (get-memory memory (slot-proc))
+                              (get-machine-call-stack-depth machine))
       (advance-pc pc))))
 
 (define (mem-load-reg inst)
@@ -588,7 +608,9 @@
         (memory (get-machine-memory machine))
         (pc (get-machine-register machine 'pc)))
     (lambda ()
-      (set-register-contents! sp (1- (get-register-contents sp)))
+      (set-register-contents! sp
+                              (1- (get-register-contents sp))
+                              (get-machine-call-stack-depth machine))
       (set-memory! memory (get-register-contents sp) (proc))
       (advance-pc pc))))
 
@@ -607,14 +629,17 @@
                    (get-machine-register machine (register-exp-reg (stack-pop-target inst)))))
              (lambda ()
                (set-register-contents! target
-                                       (get-memory memory (get-register-contents sp)))
+                                       (get-memory memory (get-register-contents sp))
+                                       (get-machine-call-stack-depth machine))
                (set-register-contents! sp
-                                       (1+ (get-register-contents sp)))
+                                       (1+ (get-register-contents sp))
+                                       (get-machine-call-stack-depth machine))
                (advance-pc pc))))
           ((null? (cdr inst))
            (lambda ()
              (set-register-contents! sp
-                                     (1+ (get-register-contents sp)))
+                                     (1+ (get-register-contents sp))
+                                     (get-machine-call-stack-depth machine))
              (advance-pc pc)))
           (else
            (error "Bad STACK-POP instruction" inst)))))
@@ -634,9 +659,15 @@
       (let ((current-sp (get-register-contents sp)))
         (set-memory! memory (1- current-sp) (cdr (get-register-contents pc)))
         (set-memory! memory (- current-sp 2) (get-register-contents bp))
-        (set-register-contents! sp (- current-sp 2))
-        (set-register-contents! bp (- current-sp 2))
-        (set-register-contents! pc next-inst)
+        (set-register-contents! sp
+                                (- current-sp 2)
+                                (get-machine-call-stack-depth machine))
+        (set-register-contents! bp
+                                (- current-sp 2)
+                                (get-machine-call-stack-depth machine))
+        (set-register-contents! pc
+                                next-inst
+                                (get-machine-call-stack-depth machine))
         (inc-machine-call-stack-depth! machine)))))
 
 (define (call-target inst)
@@ -651,14 +682,18 @@
         (bp (get-machine-register machine 'bp)))
     (lambda ()
       (set-register-contents! sp
-                              (get-register-contents bp))
+                              (get-register-contents bp)
+                              (get-machine-call-stack-depth machine))
       (let ((current-sp (get-register-contents sp)))
         (set-register-contents! bp
-                                (get-memory memory current-sp))
+                                (get-memory memory current-sp)
+                                (get-machine-call-stack-depth machine))
         (set-register-contents! pc
-                                (get-memory memory (1+ current-sp)))
+                                (get-memory memory (1+ current-sp))
+                                (get-machine-call-stack-depth machine))
         (set-register-contents! sp
-                                (+ current-sp 2))
+                                (+ current-sp 2)
+                                (get-machine-call-stack-depth machine))
         (dec-machine-call-stack-depth! machine)))))
 
 ;;; Error
