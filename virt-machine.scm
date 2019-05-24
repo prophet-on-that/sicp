@@ -111,7 +111,15 @@
               (list '<= <=)
               (list '> >)
               (list '>= >=)
-              (list 'logand logand)
+              (list 'logand
+                    (lambda (a b)
+                      ;; Handle case where this operation may be
+                      ;; called on a list of instructions stored on
+                      ;; the stack
+                      (if (and (number? a)
+                               (number? b))
+                          (logand a b)
+                          0)))
               (list 'logior logior)))
         (trace #f)
         (call-stack-depth 0))
