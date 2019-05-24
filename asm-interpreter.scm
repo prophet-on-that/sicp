@@ -342,7 +342,8 @@
   (if (number? obj)
       (let ((tag (logand tag-mask obj))
             (val (logand value-mask obj)))
-        (if (> tag 0)
+        (if (and (> tag 0)
+                 (< tag 15))
             (cond ((= tag pair-tag)
                    (format #f "p~d" val))
                   ((= tag number-tag)
@@ -350,7 +351,7 @@
                   ((= tag broken-heart) "bh")
                   (else
                    (format #f "~d/~d" (bit-extract tag 28 32) val)))
-            (format #f "~d" val)))
+            (format #f "~d" obj)))
       (format #f "~a" obj)))
 
 (define (register-trace-renderer reg-name old new)
