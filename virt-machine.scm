@@ -729,6 +729,17 @@
 
 (export make-machine-load-text)
 
+(define-public (call label . regs)
+  (append
+   (map
+    (lambda (reg)
+      `(stack-push (reg ,reg)))
+    (reverse regs))
+   `((call ,label))
+   (if (not (null? regs))
+       `((assign (reg sp) (op +) (reg sp) (const ,(length regs))))
+       '())))
+
 ;;; Test suite
 
 (test-begin "virt-machine-test")
