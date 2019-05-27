@@ -221,23 +221,20 @@
 
     gc-after-stack-relocate
     (assign (reg rax) (const 0))        ; Scan pointer
-    (mem-load (reg rbx) (const ,new-cars-pointer))
-    (mem-load (reg rcx) (const ,new-cdrs-pointer))
 
     gc-scan
     (mem-load (reg rbx) (const ,free-pair-pointer))
     (test (op <) (reg rax) (reg rbx))
     (jez (label gc-after-scan))
     ;; Relocate CAR of current pair
-    (assign (reg rdx) (op +) (reg rax) (reg rbx))
-    (stack-push (reg rdx))
-    (call gc-relocate-pair)
-    (stack-pop)
+    (mem-load (reg rcx) (const ,new-cars-pointer))
+    (assign (reg rcx) (op +) (reg rcx) (reg rax))
+    ,@(call 'gc-relocate-pair 'rcx)
     ;; Relocate CDR of current pair
-    (assign (reg rdx) (op +) (reg rax) (reg rcx))
-    (stack-push (reg rdx))
-    (call gc-relocate-pair)
-    (stack-pop)
+    (mem-load (reg rcx) (const ,new-cdrs-pointer))
+    (assign (reg rcx) (op +) (reg rcx) (reg rax))
+    ,@(call 'gc-relocate-pair 'rcx)
+    ;; Increment scan pointer
     (assign (reg rax) (op +) (reg rax) (const 1))
     (goto (label gc-scan))
 
