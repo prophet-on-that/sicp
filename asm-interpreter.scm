@@ -298,6 +298,9 @@
     (stack-push (reg rbx))
     (call set-cdr!)
     (assign (reg sp) (op +) (reg sp) (const 2))
+    ;; Set memory location to point to new pair
+    (assign (reg rcx) (op logior) (const ,pair-tag) (reg rdx))
+    (mem-store (reg rax) (reg rcx))
     ;; Increment FREE-PAIR-POINTER
     (assign (reg rdx) (op +) (reg rdx) (const 1))
     (mem-store (const ,free-pair-pointer) (reg rdx))
