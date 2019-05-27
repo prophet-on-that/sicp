@@ -550,9 +550,121 @@
            (call cons)
            (stack-pop)
            (assign (reg rax) (reg ret))
+           (call gc)
+           (stack-push (reg rax))
+           (call car)
+           (assign (reg rbx) (reg ret))
+           (call cdr)
+           (stack-pop)
+           (assign (reg rcx) (reg ret)))))
+       (rax (get-machine-register machine rax))
+       (rbx (get-machine-register machine rbx))
+       (rcx (get-machine-register machine rcx)))
+  (start-machine machine)
+  (test-eqv (get-register-contents rax) (logior pair-tag 0))
+  (test-eqv (get-register-contents rbx) (logior number-tag 1))
+  (test-eqv (get-register-contents rcx) (logior number-tag 2)))
+
+;;; Test gc: single unpreserved pair
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+           (stack-push (reg rax))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (stack-push (reg rax))
+           (call cons)
+           (stack-pop)
+           (assign (reg ret) (const 0))
            (call gc))))
+       (memory (get-machine-memory machine)))
+  (start-machine machine)
+  (test-eqv (get-memory memory free-pair-pointer) 0))
+
+;;; Test gc: two references to same pair
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           ,@(call 'cons 'rax 'rbx)
+           (assign (reg rax) (reg ret))
+           (call gc))))
+       (memory (get-machine-memory machine))
+       (ret (get-machine-register machine ret))
        (rax (get-machine-register machine rax)))
   (start-machine machine)
+  (test-eqv (get-memory memory free-pair-pointer) 1)
+  (test-eqv (get-register-contents ret) (logior pair-tag 0))
   (test-eqv (get-register-contents rax) (logior pair-tag 0)))
+
+;;; Test gc: preserved pair '((1 . 2) . (3 . 4))
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+           ,@(call 'cons 'rax 'rbx)
+           (assign (reg rcx) (reg ret))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 3))
+           (assign (reg rbx) (op logior) (const ,number-tag) (const 4))
+           ,@(call 'cons 'rax 'rbx)
+           ,@(call 'cons 'rcx 'ret)
+           (call gc)
+           ,@(call 'car 'ret)
+           ,@(call 'cdr 'ret))))
+       (memory (get-machine-memory machine))
+       (ret (get-machine-register machine ret)))
+  (start-machine machine)
+  (test-eqv (get-memory memory free-pair-pointer) 3)
+  (test-eqv (get-register-contents ret) (logior number-tag 2)))
+
+;;; Test gc: triggered when out of pairs
+(let* ((machine
+        (make-test-machine
+         `(
+           ;; Create max number of (unreferenced) pairs
+           (assign (reg rax) (const 0))
+           loop
+           (test (op <) (reg rax) (const ,test-max-num-pairs))
+           (jez (label after-loop))
+           ,@(call 'cons 'rax rax)
+           (assign (reg ret) (const 0))
+           (assign (reg rax) (op +) (reg rax) (const 1))
+           (goto (label loop))
+
+           after-loop
+           ;; Create further pair
+           (assign (reg rax) (const ,test-max-num-pairs))
+           ,@(call 'cons 'rax 'rax)
+           (assign (reg rax) (reg ret))
+           ,@(call 'car 'rax)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'cdr 'rax)
+           (assign (reg rcx) (reg ret)))))
+       (memory (get-machine-memory machine))
+       (rbx (get-machine-register machine rbx))
+       (rcx (get-machine-register machine rcx)))
+  (start-machine machine)
+  (test-eqv (get-memory memory free-pair-pointer) 1)
+  (test-eqv (get-register-contents rbx) test-max-num-pairs)
+  (test-eqv (get-register-contents rcx) test-max-num-pairs))
+
+;;; Test gc: fails when out of pairs, even after GC
+(let* ((machine
+        (make-test-machine
+         `(
+           ;; Create max number of pairs
+           (assign (reg rax) (const 0))
+           loop
+           (test (op <) (reg rax) (const ,test-max-num-pairs))
+           (jez (label after-loop))
+           ,@(call 'cons 'rax rax)
+           (stack-push (reg ret))
+           (assign (reg rax) (op +) (reg rax) (const 1))
+           (goto (label loop))
+
+           after-loop
+           ;; Create further pair
+           (assign (reg rax) (const ,test-max-num-pairs))
+           ,@(call 'cons 'rax 'rax)))))
+  (test-error #t (start-machine machine)))
 
 (test-end "asm-interpreter-test")
