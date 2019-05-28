@@ -667,4 +667,21 @@
            ,@(call 'cons 'rax 'rax)))))
   (test-error #t (start-machine machine)))
 
+;;; Test gc: flips correctly multiple times
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 0))
+           (assign (reg rbx) (const ,(1+ (* test-max-num-pairs 2)))) ; Limit
+           loop
+           (test (op <) (reg rax) (reg rbx))
+           (jez (label after-loop))
+           ,@(call 'cons 'rax rax)
+           (assign (reg ret) (const 0))
+           (assign (reg rax) (op +) (reg rax) (const 1))
+           (goto (label loop))
+           after-loop)))
+       (memory (get-machine-memory machine)))
+  (start-machine machine)
+  (test-eqv (get-memory memory free-pair-pointer) 1))
+
 (test-end "asm-interpreter-test")
