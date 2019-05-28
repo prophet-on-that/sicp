@@ -320,6 +320,7 @@
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
     ;; Args:
     ;; 0 - ASCII character to test
     numeric-char?
