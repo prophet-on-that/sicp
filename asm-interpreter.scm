@@ -320,6 +320,27 @@
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+    ;; Args:
+    ;; 0 - ASCII character to test
+    numeric-char?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (test (op >=) (reg rax) (const ,(char->integer #\0)))
+    (jez (label numeric-char?-end))
+    (test (op <=) (reg rax) (const ,(char->integer #\9)))
+
+    numeric-char?-end
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - ASCII character to test
+    whitespace-char?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (test (op =) (reg rax) (const ,(char->integer #\ )))
+    (stack-pop (reg rax))
+    (ret)
     ))
 
 ;;; Utilities
@@ -683,5 +704,49 @@
        (memory (get-machine-memory machine)))
   (start-machine machine)
   (test-eqv (get-memory memory free-pair-pointer) 1))
+
+;;; Test numeric-char?: valid values
+(for-each
+ (lambda (char)
+   (let ((machine
+          (make-test-machine
+           `((assign (reg rax) (const ,(char->integer char)))
+             ,@(call 'numeric-char? 'rax)))))
+     (start-machine machine)
+     (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
+ (string->list "0123456789"))
+
+;;; Test numeric-char?: invalid values
+(for-each
+ (lambda (char)
+   (let ((machine
+          (make-test-machine
+           `((assign (reg rax) (const ,(char->integer char)))
+             ,@(call 'numeric-char? 'rax)))))
+     (start-machine machine)
+     (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
+ (string->list " azAZ!"))
+
+;;; Test whitespace-char?: valid values
+(for-each
+ (lambda (char)
+   (let ((machine
+          (make-test-machine
+           `((assign (reg rax) (const ,(char->integer char)))
+             ,@(call 'whitespace-char? 'rax)))))
+     (start-machine machine)
+     (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
+ (string->list " "))
+
+;;; Test whitespace-char?: invalid values
+(for-each
+ (lambda (char)
+   (let ((machine
+          (make-test-machine
+           `((assign (reg rax) (const ,(char->integer char)))
+             ,@(call 'whitespace-char? 'rax)))))
+     (start-machine machine)
+     (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
+ (string->list "09azAZ!"))
 
 (test-end "asm-interpreter-test")
