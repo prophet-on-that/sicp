@@ -5,15 +5,32 @@
              (srfi srfi-1)
              (sicp eval-utils))
 
+(define trace-function-call-depth 4)
+
 ;;; Register
 
-(define (make-register)
-  (let ((contents '*unassigned*))
+(define (default-register-trace-renderer reg-name old new)
+  (format #f "reg ~a: set to ~a (previous: ~a)" reg-name new old))
+
+(define* (make-register name #:key (trace-renderer default-register-trace-renderer))
+  (let ((contents '*unassigned*)
+        (trace #f))
+
+    (define (set-trace! b)
+      (set! trace b))
+
     (define (dispatch message)
       (cond ((eq? message 'get) contents)
             ((eq? message 'set!)
-             (lambda (val)
-               (set! contents val)))
+             (lambda (val call-stack-depth)
+               (let ((prev contents))
+                 (set! contents val)
+                 (if trace
+                     (format #t
+                             "trace: ~v_~a\n"
+                             (* call-stack-depth trace-function-call-depth)
+                             (trace-renderer name prev val))))))
+            ((eq? message 'set-trace!) set-trace!)
             (else
              (error "Unknown message -- REGISTER" message))))
     dispatch))
@@ -21,13 +38,26 @@
 (define-public (get-register-contents register)
   (register 'get))
 
-(define-public (set-register-contents! register val)
-  ((register 'set!) val))
+(define* (set-register-contents! register val #:optional (call-stack-depth 0))
+  ((register 'set!) val call-stack-depth))
+
+(export set-register-contents!)
+
+(define-public (set-register-trace register b)
+  ((register 'set-trace!) b))
 
 ;;; Memory
 
+(define initial-memory-value -1)
+
 (define (make-memory n-memory-slots)
   (let ((memory (make-vector n-memory-slots)))
+    (define (zero)
+      (vector-for-each
+       (lambda (i _)
+         (vector-set! memory i initial-memory-value))
+       memory))
+
     (define (dispatch message)
       (cond ((eq? message 'get)
              (lambda (k)
@@ -41,6 +71,7 @@
                         (< k n-memory-slots))
                    (vector-set! memory k val)
                    (error "Index out of range -- SET-MEMORY" k))))
+            ((eq? message 'zero) (zero))
             (else
              (error "Unknown message -- MEMORY" message))))
     dispatch))
@@ -51,18 +82,23 @@
 (define-public (get-memory memory slot)
   ((memory 'get) slot))
 
+(define-public (zero-memory! memory)
+  (memory 'zero))
+
 ;;; Machine
+
+(define initial-register-value -1)
 
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define-public (make-machine n-registers n-memory-slots)
-  (let ((pc (make-register))
-        (flag (make-register))
-        (sp (make-register))
-        (bp (make-register))
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer))
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (sp (make-register 'sp #:trace-renderer register-trace-renderer))
+        (bp (make-register 'bp #:trace-renderer register-trace-renderer))
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
@@ -71,13 +107,38 @@
               (list '- -)
               (list '* *)
               (list '= =)
+              (list '< <)
               (list '<= <=)
-              (list 'logand logand)
+              (list '> >)
+              (list '>= >=)
+              (list 'logand
+                    (lambda (a b)
+                      ;; Handle case where this operation may be
+                      ;; called on a list of instructions stored on
+                      ;; the stack
+                      (if (and (number? a)
+                               (number? b))
+                          (logand a b)
+                          0)))
               (list 'logior logior)))
-        (trace #f))
+        (trace #f)
+        (call-stack-depth 0))
+
+    (define (reset)
+      "Reset machine to initial state."
+      (set-register-contents! pc instruction-sequence)
+      (set-register-contents! sp n-memory-slots)
+      (set-register-contents! flag 0)
+      (set-register-contents! bp initial-register-value)
+      (vector-for-each
+       (lambda (_ reg)
+         (set-register-contents! reg initial-register-value))
+       registers)
+      (zero-memory! memory)
+      (set! call-stack-depth 0))
 
     (define (start)
-      (set-register-contents! pc instruction-sequence)
+      (reset)
       (execute))
 
     (define (execute)
@@ -86,10 +147,10 @@
             'done
             (let ((next-inst (car insts)))
               (if trace
-                  (begin
-                    (display "trace: ")
-                    (display (instruction-text next-inst))
-                    (newline)))
+                  (format #t
+                          "trace: ~v_~a\n"
+                          (* call-stack-depth trace-function-call-depth)
+                          (instruction-text next-inst)))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -108,6 +169,12 @@
     (define (set-trace b)
       (set! trace b))
 
+    (define (inc-call-stack-depth!)
+      (set! call-stack-depth (1+ call-stack-depth)))
+
+    (define (dec-call-stack-depth!)
+      (set! call-stack-depth (1- call-stack-depth)))
+
     (define (dispatch message)
       (cond ((eq? message 'start)
              (start))
@@ -120,19 +187,24 @@
             ((eq? message 'get-memory) memory)
             ((eq? message 'get-ops) ops)
             ((eq? message 'set-trace) set-trace)
+            ((eq? message 'set-register-trace)
+             (lambda (register b)
+               (set-register-trace (get-register register) b)))
+            ((eq? message 'inc-call-stack-depth!) (inc-call-stack-depth!))
+            ((eq? message 'dec-call-stack-depth!) (dec-call-stack-depth!))
+            ((eq? message 'get-call-stack-depth) call-stack-depth)
             (else
              (error "Unrecognised message -- MACHINE" message))))
 
     ;; Assign registers
     (vector-for-each
      (lambda (i _)
-       (vector-set! registers i (make-register)))
+       (vector-set! registers i (make-register i #:trace-renderer register-trace-renderer)))
      registers)
 
-    ;; Assign sp
-    (set-register-contents! sp n-memory-slots)
-
     dispatch))
+
+(export make-machine)
 
 (define-public (start-machine machine)
   (machine 'start))
@@ -157,6 +229,25 @@
 
 (define-public (set-machine-trace machine b)
   ((machine 'set-trace) b))
+
+(define-public (set-machine-trace-all machine b)
+  (set-machine-trace machine b)
+  (vector-for-each
+   (lambda (_ reg)
+     (set-register-trace reg b))
+   (get-machine-registers machine)))
+
+(define-public (set-machine-register-trace machine register b)
+  ((machine 'set-register-trace) register b))
+
+(define-public (get-machine-call-stack-depth machine)
+  (machine 'get-call-stack-depth))
+
+(define-public (inc-machine-call-stack-depth! machine)
+  (machine 'inc-call-stack-depth!))
+
+(define-public (dec-machine-call-stack-depth! machine)
+  (machine 'dec-call-stack-depth!))
 
 ;;; Assembler
 
@@ -291,20 +382,26 @@
          (error "Unknown instruction -- ASSEMBLE" inst))))
 
 (define (advance-pc pc)
-  (set-register-contents! pc (cdr (get-register-contents pc))))
+  (set-register-contents! pc
+                          (cdr (get-register-contents pc))))
 
 (define (make-assign inst machine labels)
-  (let ((reg-name (register-exp-reg (assign-reg inst))))
-    (let ((target (get-machine-register machine reg-name))
-          (value-exp (assign-value-exp inst)))
-      (let ((value-proc
-             (if (operation-exp? value-exp)
-                 (make-operation-exp value-exp machine labels)
-                 (make-primitive-exp (car value-exp) machine labels)))
-            (pc (get-machine-register machine 'pc)))
-        (lambda ()
-          (set-register-contents! target (value-proc))
-          (advance-pc pc))))))
+  (if (register-exp? (assign-reg inst))
+      (let ((reg-name (register-exp-reg (assign-reg inst))))
+        (let ((target (get-machine-register machine reg-name))
+              (value-exp (assign-value-exp inst)))
+          (let ((value-proc
+                 (if (operation-exp? value-exp)
+                     (make-operation-exp value-exp machine labels)
+                     (make-primitive-exp (car value-exp) machine labels)))
+                (pc (get-machine-register machine 'pc)))
+            (lambda ()
+              (set-register-contents! target
+                                      (value-proc)
+                                      (get-machine-call-stack-depth machine))
+              (advance-pc pc)))))
+      (error
+       "Bad ASSIGN instruction -- ASSEMBLE" inst)))
 
 (define (assign-reg assign-instruction)
   (cadr assign-instruction))
@@ -388,7 +485,9 @@
               (flag (get-machine-flag machine))
               (pc (get-machine-register machine 'pc)))
           (lambda ()
-            (set-register-contents! flag (if (condition-proc) 1 0))
+            (set-register-contents! flag
+                                    (if (condition-proc) 1 0)
+                                    (get-machine-call-stack-depth machine))
             (advance-pc pc)))
         (error "Bad TEST instruction -- ASSEMBLE" inst))))
 
@@ -405,9 +504,11 @@
               (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (= 0 (get-register-contents flag))
-                (set-register-contents! pc insts)
+                (set-register-contents! pc
+                                        insts
+                                        (get-machine-call-stack-depth machine))
                 (advance-pc pc))))
-        (error "Bad JEZ instruction -- ASSEMBLE"))))
+        (error "Bad JEZ instruction -- ASSEMBLE" inst))))
 
 (define (jez-dest inst)
   (cadr inst))
@@ -422,9 +523,11 @@
               (pc (get-machine-register machine 'pc)))
           (lambda ()
             (if (not (= 0 (get-register-contents flag)))
-                (set-register-contents! pc insts)
+                (set-register-contents! pc
+                                        insts
+                                        (get-machine-call-stack-depth machine))
                 (advance-pc pc))))
-        (error "Bad JNE instruction -- ASSEMBLE"))))
+        (error "Bad JNE instruction -- ASSEMBLE" inst))))
 
 (define (jne-dest inst)
   (cadr inst))
@@ -437,14 +540,18 @@
            (let ((insts (lookup-label labels (label-exp-label dest)))
                  (pc (get-machine-register machine 'pc)))
              (lambda ()
-               (set-register-contents! pc insts))))
+               (set-register-contents! pc
+                                       insts
+                                       (get-machine-call-stack-depth machine)))))
           ((register-exp? dest)
            (let ((reg (get-machine-register machine (register-exp-reg dest)))
                  (pc (get-machine-register machine 'pc)))
              (lambda ()
-               (set-register-contents! pc (get-register-contents reg)))))
+               (set-register-contents! pc
+                                       (get-register-contents reg)
+                                       (get-machine-call-stack-depth machine)))))
           (else
-           (error "Bad GOTO instruction -- ASSEMBLE")))))
+           (error "Bad GOTO instruction -- ASSEMBLE" inst)))))
 
 (define (goto-dest inst)
   (cadr inst))
@@ -490,7 +597,9 @@
                 (make-primitive-exp (car slot-exp) machine labels))
                (else "Bad MEM-LOAD instruction" inst))))
     (lambda ()
-      (set-register-contents! reg (get-memory memory (slot-proc)))
+      (set-register-contents! reg
+                              (get-memory memory (slot-proc))
+                              (get-machine-call-stack-depth machine))
       (advance-pc pc))))
 
 (define (mem-load-reg inst)
@@ -507,7 +616,9 @@
         (memory (get-machine-memory machine))
         (pc (get-machine-register machine 'pc)))
     (lambda ()
-      (set-register-contents! sp (1- (get-register-contents sp)))
+      (set-register-contents! sp
+                              (1- (get-register-contents sp))
+                              (get-machine-call-stack-depth machine))
       (set-memory! memory (get-register-contents sp) (proc))
       (advance-pc pc))))
 
@@ -521,20 +632,22 @@
         (memory (get-machine-memory machine))
         (pc (get-machine-register machine 'pc)))
     (cond ((and (pair? (cdr inst))
-                (register-exp? target-exp))
-           (let* ((target-exp (stack-pop-target inst))
-                  (target
-                   (get-machine-register machine (register-exp-reg target-exp))))
+                (register-exp? (stack-pop-target inst)))
+           (let ((target
+                   (get-machine-register machine (register-exp-reg (stack-pop-target inst)))))
              (lambda ()
                (set-register-contents! target
-                                       (get-memory memory (get-register-contents sp)))
+                                       (get-memory memory (get-register-contents sp))
+                                       (get-machine-call-stack-depth machine))
                (set-register-contents! sp
-                                       (1+ (get-register-contents sp)))
+                                       (1+ (get-register-contents sp))
+                                       (get-machine-call-stack-depth machine))
                (advance-pc pc))))
           ((null? (cdr inst))
            (lambda ()
              (set-register-contents! sp
-                                     (1+ (get-register-contents sp)))
+                                     (1+ (get-register-contents sp))
+                                     (get-machine-call-stack-depth machine))
              (advance-pc pc)))
           (else
            (error "Bad STACK-POP instruction" inst)))))
@@ -554,9 +667,16 @@
       (let ((current-sp (get-register-contents sp)))
         (set-memory! memory (1- current-sp) (cdr (get-register-contents pc)))
         (set-memory! memory (- current-sp 2) (get-register-contents bp))
-        (set-register-contents! sp (- current-sp 2))
-        (set-register-contents! bp (- current-sp 2))
-        (set-register-contents! pc next-inst)))))
+        (set-register-contents! sp
+                                (- current-sp 2)
+                                (get-machine-call-stack-depth machine))
+        (set-register-contents! bp
+                                (- current-sp 2)
+                                (get-machine-call-stack-depth machine))
+        (set-register-contents! pc
+                                next-inst
+                                (get-machine-call-stack-depth machine))
+        (inc-machine-call-stack-depth! machine)))))
 
 (define (call-target inst)
   (cadr inst))
@@ -570,14 +690,19 @@
         (bp (get-machine-register machine 'bp)))
     (lambda ()
       (set-register-contents! sp
-                              (get-register-contents bp))
+                              (get-register-contents bp)
+                              (get-machine-call-stack-depth machine))
       (let ((current-sp (get-register-contents sp)))
         (set-register-contents! bp
-                                (get-memory memory current-sp))
+                                (get-memory memory current-sp)
+                                (get-machine-call-stack-depth machine))
         (set-register-contents! pc
-                                (get-memory memory (1+ current-sp)))
+                                (get-memory memory (1+ current-sp))
+                                (get-machine-call-stack-depth machine))
         (set-register-contents! sp
-                                (+ current-sp 2))))))
+                                (+ current-sp 2)
+                                (get-machine-call-stack-depth machine))
+        (dec-machine-call-stack-depth! machine)))))
 
 ;;; Error
 
@@ -586,7 +711,7 @@
     (if (constant-exp? error-code-exp)
         (let ((error-code (constant-exp-value error-code-exp)))
           (lambda ()
-            (error "The program has exited with an error." error-code)))
+            (error "The program has exited with an error" error-code)))
         (error "Invalid ERROR instruction" inst))))
 
 (define (error-inst-code inst)
@@ -594,11 +719,26 @@
 
 ;;; Utilities
 
-(define-public (make-machine-load-text n-registers n-memory-slots controller-text)
-  (let ((machine (make-machine n-registers n-memory-slots)))
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer))
+  (let ((machine (make-machine n-registers
+                               n-memory-slots
+                               #:register-trace-renderer register-trace-renderer)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
       machine)))
+
+(export make-machine-load-text)
+
+(define-public (call label . regs)
+  (append
+   (map
+    (lambda (reg)
+      `(stack-push (reg ,reg)))
+    (reverse regs))
+   `((call ,label))
+   (if (not (null? regs))
+       `((assign (reg sp) (op +) (reg sp) (const ,(length regs))))
+       '())))
 
 ;;; Test suite
 
@@ -860,29 +1000,28 @@
 
 ;;; Test factorial iterative implementation
 (let* ((code
-       ;; Assume register 0 holds n, output n! into register 1
-       '((assign (reg 1) (const 1))
-         before-test
-         (test (op <=) (reg 0) (const 1))
-         (jne (label after-loop))
-         (assign (reg 1) (op *) (reg 0) (reg 1))
-         (assign (reg 0) (op -) (reg 0) (const 1))
-         (goto (label before-test))
-         after-loop))
+       ;; Output n! into register 1
+        '((assign (reg 0) (const 5))    ; n
+          (assign (reg 1) (const 1))
+          before-test
+          (test (op <=) (reg 0) (const 1))
+          (jne (label after-loop))
+          (assign (reg 1) (op *) (reg 0) (reg 1))
+          (assign (reg 0) (op -) (reg 0) (const 1))
+          (goto (label before-test))
+          after-loop))
        (machine (make-machine-load-text 2 0 code))
-       (reg0 (get-machine-register machine 0))
        (reg1 (get-machine-register machine 1)))
-  (set-register-contents! reg0 5)
   (start-machine machine)
   (test-eqv (get-register-contents reg1) 120))
 
 ;;; Test factorial recursive implementation
 (let* ((code
-        ;; Input: n in register 0
         ;; Ouput: n! in register 1
         '((alias 0 n)
           (alias 1 ret)
           (alias 2 continue)
+          (assign (reg n) (const 5))
           (assign (reg continue) (label fact-end))
           factorial-test
           (test (op <=) (reg n) (const 1))
@@ -902,38 +1041,42 @@
           (goto (reg continue))
           fact-end))
        (machine (make-machine-load-text 4 512 code))
-       (reg0 (get-machine-register machine 0))
        (reg1 (get-machine-register machine 1)))
-  (set-register-contents! reg0 5)
   (start-machine machine)
   (test-eqv (get-register-contents reg1) 120))
 
 ;;; Test factorial recursive implementation
-(let* ((code
-        ;; Input: n in register 0
-        ;; Ouput: n! in register 0
-        '((goto (label start))
+(let ((machine
+       (make-machine-load-text
+        4
+        512
+        '((alias 0 ret)
+          (alias 1 rax)
+          (alias 2 rbx)
+          (goto (label start))
           factorial
-          (mem-load (reg 0) (op +) (reg bp) (const 2)) ; n
-          (test (op <=) (reg 0) (const 1))
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; n
+          (test (op <=) (reg rax) (const 1))
           (jne (label base-case))
-          (stack-push (reg 0))          ; save n
-          (assign (reg 0) (op -) (reg 0) (const 1))
-          (stack-push (reg 0))
+          (assign (reg rbx) (op -) (reg rax) (const 1)) ; n - 1
+          (stack-push (reg rbx))
           (call factorial)
-          (assign (reg 1) (reg 0))      ; (n - 1)!
           (stack-pop)
-          (stack-pop)                             ; n
-          (assign (reg 0) (op *) (reg 0) (reg 1)) ; n!
+          (assign (reg rbx) (reg ret)) ; (n - 1)!
+          (assign (reg ret) (op *) (reg rax) (reg rbx))
+          (goto (label factorial-end))
           base-case
+          (assign (reg ret) (reg rax))
+          factorial-end
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
           (ret)                         ; return n
           start
-          (stack-push (reg 0))
-          (call factorial)))
-       (machine (make-machine-load-text 4 512 code))
-       (reg0 (get-machine-register machine 0)))
-  (set-register-contents! reg0 5)
+          (stack-push (const 5))
+          (call factorial)))))
   (start-machine machine)
-  (test-eqv (get-register-contents reg0) 120))
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 120))
 
 (test-end "virt-machine-test")
