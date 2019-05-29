@@ -1,7 +1,8 @@
 (define-module (sicp asm-interpreter))
 
 (use-modules (sicp virt-machine)
-             (srfi srfi-64))
+             (srfi srfi-64)
+             (srfi srfi-1))
 
 ;;; Architecture: 32-bit
 ;;; Typed pointer tag: 4 bits for typed pointer information stored in
@@ -26,6 +27,7 @@
 (define free-pair-pointer 2)            ; Next unassigned index into the pairs arrays
 (define new-cars-pointer 3)
 (define new-cdrs-pointer 4)
+(define read-buffer-pointer 5)
 (define the-cars-offset 8)
 
 ;;; Exit codes
@@ -59,7 +61,11 @@
 
     ;; Initialise new-cdrs-pointer
     (assign (reg rax) (const ,(+ the-cars-offset (* 3 max-num-pairs))))
-    (mem-store (const ,new-cdrs-pointer) (reg rax))))
+    (mem-store (const ,new-cdrs-pointer) (reg rax))
+
+    ;; Initialise read-buffer-pointer
+    (assign (reg rax) (const ,(+ the-cars-offset (* 4 max-num-pairs))))
+    (mem-store (const ,read-buffer-pointer) (reg rax))))
 
 (define (memory-management-defs max-num-pairs memory-size)
   `(
@@ -342,6 +348,40 @@
     (test (op =) (reg rax) (const ,(char->integer #\ )))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed integer and the address
+    ;; after the last character parsed
+    parse-int
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (assign (reg rcx) (const 0))        ; Parsed number
+    parse-int-test
+    (test (op <) (reg rax) (reg rbx))
+    (jez (label parse-int-end))
+    (mem-load (reg rdx) (reg rax))      ; Current char
+    ,@(call 'numeric-char? 'rdx)
+    (jez (label parse-int-end))
+    (assign (reg rdx) (op -) (reg rdx) (const ,(char->integer #\0)))
+    (assign (reg rcx) (op *) (reg rcx) (const 10))
+    (assign (reg rcx) (op +) (reg rcx) (reg rdx))
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    (goto (label parse-int-test))
+
+    parse-int-end
+    (assign (reg rcx) (op logior) (reg rcx) (const ,number-tag))
+    ,@(call 'cons 'rcx 'rax)
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
     ))
 
 ;;; Utilities
@@ -388,14 +428,25 @@
           (render-trace-value new)
           (render-trace-value old)))
 
+(define (write-memory memory offset list)
+  (for-each
+   (lambda (n i)
+     (set-memory! memory i n))
+   list
+   (iota (length list) offset)))
+
 ;;; Test suite
 
 (define test-max-num-pairs 8)
 (define test-num-registers 8)
 (define test-stack-size 128)
+(define test-read-buffer-size 128)
 (define test-memory-size (+ the-cars-offset
                             (* test-max-num-pairs 4)
-                            test-stack-size))
+                            test-stack-size
+                            test-read-buffer-size))
+(define test-read-buffer-offset (+ the-cars-offset
+                                   (* 4 test-max-num-pairs)))
 
 (define (make-test-machine code)
   (make-machine-load-text
@@ -749,5 +800,50 @@
      (start-machine machine)
      (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
  (string->list "09azAZ!"))
+
+;;; Test parse-int: valid values
+(for-each
+   (lambda (test-case)
+     (let* ((str
+             (if (string? test-case)
+                 test-case
+                 (car test-case)))
+            (parsed-number
+             (if (string? test-case)
+                 (string->number test-case)
+                 (cadr test-case)))
+            (count-chars-read
+             (if (string? test-case)
+                 (string-length test-case)
+                 (caddr test-case)))
+            (machine
+             (make-test-machine
+              `((assign (reg rax) (const ,test-read-buffer-offset))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                ,@(call 'parse-int 'rax 'rbx)
+                (assign (reg rax) (reg ret))
+                ,@(call 'car 'rax)
+                (assign (reg rbx) (reg ret))
+                ,@(call 'cdr 'rax))))
+            (memory (get-machine-memory machine)))
+       (reset-machine machine)
+       (write-memory memory
+                     test-read-buffer-offset
+                     (map char->integer (string->list str)))
+       (continue-machine machine)
+       (test-eqv (get-register-contents (get-machine-register machine rbx))
+         (logior parsed-number number-tag))
+       (test-eqv (get-register-contents (get-machine-register machine ret))
+         (+ test-read-buffer-offset count-chars-read))))
+   '(
+     "0"
+     "9"
+     "999"
+     "1001"
+     "001111"
+     ("0 " 0 1)
+     ("0)" 0 1)
+     ("9d" 9 1)
+     ("900d " 900 3)))
 
 (test-end "asm-interpreter-test")
