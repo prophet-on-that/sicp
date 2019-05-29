@@ -193,6 +193,8 @@
             ((eq? message 'inc-call-stack-depth!) (inc-call-stack-depth!))
             ((eq? message 'dec-call-stack-depth!) (dec-call-stack-depth!))
             ((eq? message 'get-call-stack-depth) call-stack-depth)
+            ((eq? message 'continue) (execute))
+            ((eq? message 'reset) (reset))
             (else
              (error "Unrecognised message -- MACHINE" message))))
 
@@ -248,6 +250,12 @@
 
 (define-public (dec-machine-call-stack-depth! machine)
   (machine 'dec-call-stack-depth!))
+
+(define-public (continue-machine machine)
+  (machine 'continue))
+
+(define-public (reset-machine machine)
+  (machine 'reset))
 
 ;;; Assembler
 
