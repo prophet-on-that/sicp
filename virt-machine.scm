@@ -161,6 +161,7 @@
       (cond ((eq? reg 'sp) sp)
             ((eq? reg 'pc) pc)
             ((eq? reg 'bp) bp)
+            ((eq? reg 'flag) flag)
             ((number? reg)
              (vector-ref registers reg))
             (else
@@ -237,7 +238,8 @@
   (vector-for-each
    (lambda (_ reg)
      (set-register-trace reg b))
-   (get-machine-registers machine)))
+   (get-machine-registers machine))
+  (set-register-trace (get-machine-register machine 'flag) b))
 
 (define-public (set-machine-register-trace machine register b)
   ((machine 'set-register-trace) register b))
