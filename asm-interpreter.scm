@@ -1032,6 +1032,27 @@
      ("9d" 9 1)
      ("900d " 900 3)))
 
+;;; Test parse-list: '()
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-list 'rax 'rbx)
+                  (assign (reg rax) (reg ret))
+                  ,@(call 'cdr 'rax)
+                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+                  ,@(call 'car 'rax)
+                  (assign (reg rax) (reg ret))))) ; The parsed list
+      (exp (string->list (format #f "~a" '()))))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list))
+
+;;; Test parse-list: '(1 2)
 (let ((machine (make-test-machine
                 `((assign (reg rax) (const ,test-read-buffer-offset))
                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
@@ -1059,5 +1080,75 @@
   (test-eqv (get-register-contents (get-machine-register machine rdx))
     (logior number-tag 2))
   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;;; Test parse-list: '((1) 2)
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-list 'rax 'rbx)
+                  (assign (reg rax) (reg ret))
+                  ,@(call 'cdr 'rax)
+                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+                  ,@(call 'car 'rax)
+                  (assign (reg rax) (reg ret)) ; The parsed list
+                  ,@(call 'caar 'rax)
+                  (assign (reg rcx) (reg ret))  ; CAAR of list
+                  ,@(call 'cadr 'rax)
+                  (assign (reg rdx) (reg ret)) ; CADR of list
+                  ,@(call 'cddr 'rax)))) ; CDDR of list
+      (exp (string->list (format #f "~a" '((1) 2)))))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag 1))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag 2))
+  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;;; Test parse-list: unusual whitespace
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-list 'rax 'rbx)
+                  (assign (reg rax) (reg ret))
+                  ,@(call 'cdr 'rax)
+                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+                  ,@(call 'car 'rax)
+                  (assign (reg rax) (reg ret)) ; The parsed list
+                  ,@(call 'car 'rax)
+                  (assign (reg rcx) (reg ret))  ; CAR of list
+                  ,@(call 'cadr 'rax)
+                  (assign (reg rdx) (reg ret)) ; CADR of list
+                  ,@(call 'cddr 'rax)))) ; CDDR of list
+      (exp (string->list "( 1  2   )")))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag 1))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag 2))
+  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;;; Test parse-list: error on unterminated input
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-list 'rax 'rbx))))
+      (exp (string->list "(1 2")))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (test-error #t (continue-machine machine)))
 
 (test-end "asm-interpreter-test")
