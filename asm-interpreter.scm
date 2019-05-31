@@ -227,6 +227,15 @@
     ,@(call 'cdr 'ret)
     (ret)
 
+    ;; Args:
+    ;; 0 - pair from which to extract the caar
+    ;; Output: caar of pair
+    caar
+    (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
+    ,@(call 'car 'ret)
+    ,@(call 'car 'ret)
+    (ret)
+
     gc
     ;; Push all data registers to the stack, so that the stack holds
     ;; all pair references
@@ -777,6 +786,18 @@
            ,@(call 'cddr 'ret)))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;;; Test caar: '((1))
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 1))
+           (assign (reg rbx) (const ,empty-list))
+           ,@(call 'cons 'rax 'rbx)
+           (assign (reg rax) (const ,empty-list))
+           ,@(call 'cons 'ret 'rax)
+           ,@(call 'caar 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine ret)) 1))
 
 ;;; Test gc: single preserved pair
 (let* ((machine
