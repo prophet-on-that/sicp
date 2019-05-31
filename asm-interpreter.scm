@@ -12,6 +12,7 @@
 (define pair-tag #x10000000)
 (define number-tag #x20000000)
 (define broken-heart #x30000000)
+(define empty-list #x40000000)
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -36,6 +37,9 @@
 ;;; 3 - attempting to set the CAR of a non-pair
 ;;; 4 - attempting to set the CAR of a non-pair
 ;;; 5 - no space for a new pair
+(define error-read-list-bad-start-char 8)
+(define error-read-unterminated-list 9)
+(define error-read-unknown-char 10)
 
 (define (init max-num-pairs)
   `((alias ,ret ret)
@@ -368,6 +372,24 @@
     (ret)
 
     ;; Args:
+    ;; 0 - ASCII character to test
+    list-start-char?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (test (op =) (reg rax) (const ,(char->integer #\()))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - ASCII character to test
+    list-end-char?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (test (op =) (reg rax) (const ,(char->integer #\))))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
     ;; 0 - memory address from which to start parsing
     ;; 1 - first memory address after the buffer
     ;; Output: pair containing the parsed integer and the address
@@ -400,6 +422,106 @@
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed list and the address
+    ;; after the last character parsed
+    parse-list-remainder
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    parse-list-remainder-test
+    (test (op <) (reg rax) (reg rbx))
+    (jez (label read-unterminated-list))
+    (mem-load (reg rcx) (reg rax))      ; Current char
+    ,@(call 'whitespace-char? 'rcx)
+    (jne (label parse-list-remainder-whitespace))
+    ,@(call 'list-end-char? 'rcx)
+    (jne (label parse-list-remainder-empty-list))
+    ,@(call 'numeric-char? 'rcx)
+    (jne (label parse-list-remainder-int))
+    ,@(call 'list-start-char? 'rcx)
+    (jne (label parse-list-remainder-list))
+    (goto (label read-unknown-char))
+
+    parse-list-remainder-whitespace
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    (goto (label parse-list-remainder-test))
+
+    parse-list-remainder-empty-list
+    (assign (reg rcx) (const ,empty-list))
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    ,@(call 'cons 'rcx 'rax)
+    (goto (label parse-list-remainder-end))
+
+    parse-list-remainder-int
+    ,@(call 'parse-int 'rax 'rbx)
+    (goto (label parse-list-remainder-continue))
+
+    parse-list-remainder-list
+    ,@(call 'parse-list 'rax 'rbx)
+    (goto (label parse-list-remainder-continue))
+
+    parse-list-remainder-continue
+    (assign (reg rcx) (reg ret))
+    ,@(call 'cdr 'rcx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'parse-list-remainder 'rdx 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cdr 'rax)
+    (assign (reg rbx) (reg ret))        ; Index after the end of the list
+    ,@(call 'car 'rax)
+    (assign (reg rax) (reg ret))        ; Remainder of the list
+    ,@(call 'car 'rcx)
+    (assign (reg rcx) (reg ret))        ; The current parsed value
+    ,@(call 'cons 'rcx 'rax)
+    (assign (reg rax) (reg ret))        ; The parsed list
+    ,@(call 'cons 'rax 'rbx)
+    (goto (label parse-list-remainder-end))
+
+    parse-list-remainder-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    read-unterminated-list
+    (error (const ,error-read-unterminated-list))
+
+    read-unknown-char
+    (error (const ,error-read-unknown-char))
+
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed list and the address
+    ;; after the last character parsed
+    parse-list
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (reg rax))                 ; Current char
+    ,@(call 'list-start-char? 'rcx)
+    (jez (label parse-list-error))
+    (test (op =) (reg rcx) (const ,(char->integer #\()))
+    (jez (label parse-list-error))
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    ,@(call 'parse-list-remainder 'rax 'rbx)
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    parse-list-error
+    (error (const ,error-read-list-bad-start-char))
     ))
 
 ;;; Utilities
@@ -429,6 +551,7 @@
                      ((= tag number-tag)
                       (format #f "n~d" val))
                      ((= tag broken-heart) "bh")
+                     ((= tag empty-list) "()")
                      (else
                       (format #f "~d/~d" (bit-extract tag 28 32) val)))
                (format #f "~d" obj))))
@@ -887,5 +1010,33 @@
      ("0)" 0 1)
      ("9d" 9 1)
      ("900d " 900 3)))
+
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-list 'rax 'rbx)
+                  (assign (reg rax) (reg ret))
+                  ,@(call 'cdr 'rax)
+                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+                  ,@(call 'car 'rax)
+                  (assign (reg rax) (reg ret)) ; The parsed list
+                  ,@(call 'car 'rax)
+                  (assign (reg rcx) (reg ret))  ; CAR of list
+                  ,@(call 'cadr 'rax)
+                  (assign (reg rdx) (reg ret)) ; CADR of list
+                  ,@(call 'cddr 'rax)))) ; CDDR of list
+      (exp (string->list (format #f "~a" '(1 2)))))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag 1))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag 2))
+  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
 
 (test-end "asm-interpreter-test")
