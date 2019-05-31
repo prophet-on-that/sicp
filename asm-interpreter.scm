@@ -38,7 +38,7 @@
 ;;; 4 - attempting to set the CAR of a non-pair
 ;;; 5 - no space for a new pair
 (define error-read-list-bad-start-char 8)
-(define error-read-unterminated-list 9)
+(define error-read-unterminated-input 9)
 (define error-read-unknown-char 10)
 
 (define (init max-num-pairs)
@@ -446,7 +446,7 @@
 
     parse-list-remainder-test
     (test (op <) (reg rax) (reg rbx))
-    (jez (label read-unterminated-list))
+    (jez (label read-unterminated-input))
     (mem-load (reg rcx) (reg rax))      ; Current char
     ,@(call 'whitespace-char? 'rcx)
     (jne (label parse-list-remainder-whitespace))
@@ -500,8 +500,8 @@
     (stack-pop (reg rax))
     (ret)
 
-    read-unterminated-list
-    (error (const ,error-read-unterminated-list))
+    read-unterminated-input
+    (error (const ,error-read-unterminated-input))
 
     read-unknown-char
     (error (const ,error-read-unknown-char))
@@ -531,6 +531,48 @@
 
     parse-list-error
     (error (const ,error-read-list-bad-start-char))
+
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed expression and the address
+    ;; after the last character parsed
+    parse-exp
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    parse-exp-test
+    (test (op <) (reg rax) (reg rbx))
+    (jez (label read-unterminated-input))
+    (mem-load (reg rcx) (reg rax))      ; Current char
+    ,@(call 'whitespace-char? 'rcx)
+    (jne (label parse-exp-whitespace))
+    ,@(call 'numeric-char? 'rcx)
+    (jne (label parse-exp-int))
+    ,@(call 'list-start-char? 'rcx)
+    (jne (label parse-exp-list))
+    (goto (label read-unknown-char))
+
+    parse-exp-whitespace
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    (goto (label parse-exp-test))
+
+    parse-exp-int
+    ,@(call 'parse-int 'rax 'rbx)
+    (goto (label parse-exp-end))
+
+    parse-exp-list
+    ,@(call 'parse-list 'rax 'rbx)
+    (goto (label parse-exp-end))
+
+    parse-exp-end
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
     ))
 
 ;;; Utilities
