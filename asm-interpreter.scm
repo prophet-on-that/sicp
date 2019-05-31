@@ -205,6 +205,24 @@
     set-cdr!-invalid-arg
     (error (const 3))
 
+    ;; Args:
+    ;; 0 - pair from which to extract the cadr
+    ;; Output: cadr of pair
+    cadr
+    (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
+    ,@(call 'cdr 'ret)
+    ,@(call 'car 'ret)
+    (ret)
+
+    ;; Args:
+    ;; 0 - pair from which to extract the cddr
+    ;; Output: cddr of pair
+    cddr
+    (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
+    ,@(call 'cdr 'ret)
+    ,@(call 'cdr 'ret)
+    (ret)
+
     gc
     ;; Push all data registers to the stack, so that the stack holds
     ;; all pair references
@@ -612,6 +630,30 @@
            (call set-cdr!)
            (assign (reg sp) (op +) (reg sp) (const 2))))))
   (test-error #t (start-machine machine)))
+
+;;; Test cadr
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 2))
+           (assign (reg rbx) (const ,empty-list))
+           ,@(call 'cons 'rax 'rbx)
+           (assign (reg rax) (const 1))
+           ,@(call 'cons 'rax 'ret)
+           ,@(call 'cadr 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine ret)) 2))
+
+;;; Test cddr
+(let* ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 2))
+           (assign (reg rbx) (const ,empty-list))
+           ,@(call 'cons 'rax 'rbx)
+           (assign (reg rax) (const 1))
+           ,@(call 'cons 'rax 'ret)
+           ,@(call 'cddr 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
 
 ;;; Test gc: single preserved pair
 (let* ((machine
