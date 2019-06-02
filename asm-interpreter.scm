@@ -1193,4 +1193,87 @@
                 (map char->integer exp))
   (test-error #t (continue-machine machine)))
 
+;;; Test parse-exp: integer
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-exp 'rax 'rbx)
+                  (assign (reg rbx) (reg ret))
+                  ,@(call 'cdr 'rbx)
+                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
+                  ,@(call 'car 'rbx)
+                  (assign (reg rbx) (reg ret))))) ; The parsed value
+      (exp (string->list "9")))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (logior number-tag 9)))
+
+;;; Test parse-exp: integer with leading and trailing whitespace
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-exp 'rax 'rbx)
+                  (assign (reg rbx) (reg ret))
+                  ,@(call 'cdr 'rbx)
+                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
+                  ,@(call 'car 'rbx)
+                  (assign (reg rbx) (reg ret))))) ; The parsed value
+      (exp (string->list "  9  ")))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset 3))
+  (test-eqv (get-register-contents (get-machine-register machine rbx))
+    (logior number-tag 9)))
+
+;;; Test parse-exp: list
+(let ((machine (make-test-machine
+                `((assign (reg rax) (const ,test-read-buffer-offset))
+                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                  ,@(call 'parse-exp 'rax 'rbx)
+                  (assign (reg rbx) (reg ret))
+                  ,@(call 'cdr 'rbx)
+                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
+                  ,@(call 'car 'rbx)
+                  (assign (reg rbx) (reg ret)) ; The parsed value
+                  ,@(call 'car 'rbx)
+                  (assign (reg rcx) (reg ret)) ; CAR of parsed value
+                  ,@(call 'cdr 'rbx)
+                  (assign (reg rdx) (reg ret))))) ; CDR of parsed value
+      (exp (string->list "(1)")))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                test-read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag 1))
+  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
+
+;;; Test parse-exp: malformed input
+(for-each
+ (lambda (str)
+   (let ((machine (make-test-machine
+                   `((assign (reg rax) (const ,test-read-buffer-offset))
+                     (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                     ,@(call 'parse-exp 'rax 'rbx))))
+         (exp (string->list str)))
+     (reset-machine machine)
+     (write-memory (get-machine-memory machine)
+                   test-read-buffer-offset
+                   (map char->integer exp))
+     (test-error (continue-machine machine))))
+ '(")1 2 3)" "(1 2"))
+
 (test-end "asm-interpreter-test")
