@@ -381,6 +381,8 @@
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    equal?-entry
     ,@(call 'pair? 'rax)
     (jne (label equal?-first-pair))
     (goto (label equal?-test-eq?))
@@ -399,11 +401,10 @@
     ,@(call 'equal? 'rcx 'rdx)
     (jez (label equal?-end))
     ,@(call 'cdr 'rax)
-    (assign (reg rcx) (reg ret))
+    (assign (reg rax) (reg ret))
     ,@(call 'cdr 'rbx)
-    (assign (reg rdx) (reg ret))
-    ,@(call 'equal? 'rcx 'rdx)
-    (goto (label equal?-end))
+    (assign (reg rbx) (reg ret))
+    (goto (label equal?-entry))         ; TCO
 
     equal?-test-eq?
     ,@(call 'eq? 'rax 'rbx)
