@@ -359,6 +359,63 @@
     (ret)
 
     ;; Args:
+    ;; 0 - Object
+    ;; 1 - Object
+    eq?
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (test (op =) (reg rax) (reg rbx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - Object
+    ;; 1 - Object
+    equal?
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ,@(call 'pair? 'rax)
+    (jne (label equal?-first-pair))
+    (goto (label equal?-test-eq?))
+
+    equal?-first-pair
+    ,@(call 'pair? 'rbx)
+    (jne (label equal?-second-pair))
+    (goto (label equal?-test-eq?))
+
+    ;; Recursively test both cars and cdrs
+    equal?-second-pair
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'car 'rbx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'equal? 'rcx 'rdx)
+    (jez (label equal?-end))
+    ,@(call 'cdr 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'equal? 'rcx 'rdx)
+    (goto (label equal?-end))
+
+    equal?-test-eq?
+    ,@(call 'eq? 'rax 'rbx)
+
+    equal?-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
     ;; 0 - ASCII character to test
     numeric-char?
     (stack-push (reg rax))
@@ -1275,5 +1332,79 @@
                    (map char->integer exp))
      (test-error (continue-machine machine))))
  '(")1 2 3)" "(1 2"))
+
+;;; Test eq successful: '((1) (2))
+(let ((machine
+       (make-test-machine
+        `((goto (label _start))
+
+          build-list
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (stack-push (reg rcx))
+          (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+          (assign (reg rbx) (const ,empty-list))
+          ,@(call 'cons 'rax 'rbx)
+          (assign (reg rax) (reg ret))
+          ,@(call 'cons 'rax 'rbx)
+          (assign (reg rcx) (reg ret))
+          (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+          (assign (reg rbx) (const ,empty-list))
+          ,@(call 'cons 'rax 'rbx)
+          ,@(call 'cons 'ret 'rcx)
+          (stack-pop (reg rcx))
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
+          (ret)
+
+          _start
+          ,@(call 'build-list)
+          (assign (reg rax) (reg ret))
+          ,@(call 'build-list)
+          (assign (reg rbx) (reg ret))
+          ,@(call 'equal? 'rax 'rbx)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+
+(let ((machine
+       (make-test-machine
+        `((goto (label _start))
+
+          ;; Args:
+          ;; 0 - integer M
+          ;; 1 - integer N
+          ;; Output: the list [M..N)
+          range
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (stack-push (reg rcx))
+          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
+          (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
+          (test (op >=) (reg rax) (reg rbx))
+          (jne (label range-base-case))
+          (assign (reg rcx) (op +) (reg rax) (const 1))
+          ,@(call 'range 'rcx 'rbx)
+          ,@(call 'cons 'rax 'ret)
+          (goto (label range-end))
+
+          range-base-case
+          (assign (reg ret) (const ,empty-list))
+
+          range-end
+          (stack-pop (reg rcx))
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
+          (ret)
+
+          _start
+          (assign (reg rax) (const 0))
+          (assign (reg rbx) (const 2))
+          ,@(call 'range 'rax 'rbx)
+          (assign (reg rcx) (reg ret))
+          (assign (reg rbx) (const 3))
+          ,@(call 'range 'rax 'rbx)
+          ,@(call 'equal? 'rcx 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0))
 
 (test-end "asm-interpreter-test")
