@@ -703,7 +703,8 @@
    test-num-registers
    test-memory-size
    (wrap-code test-max-num-pairs test-memory-size code)
-   #:register-trace-renderer register-trace-renderer))
+   #:register-trace-renderer register-trace-renderer
+   #:stack-limit test-stack-size))
 
 (test-begin "asm-interpreter-test")
 
