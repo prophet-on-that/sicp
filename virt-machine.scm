@@ -94,7 +94,7 @@
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer))
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (sp (make-register 'sp #:trace-renderer register-trace-renderer))
@@ -196,6 +196,8 @@
             ((eq? message 'get-call-stack-depth) call-stack-depth)
             ((eq? message 'continue) (execute))
             ((eq? message 'reset) (reset))
+            ((eq? message 'memory-slots) n-memory-slots)
+            ((eq? message 'stack-limit) stack-limit)
             (else
              (error "Unrecognised message -- MACHINE" message))))
 
@@ -258,6 +260,12 @@
 
 (define-public (reset-machine machine)
   (machine 'reset))
+
+(define-public (get-machine-memory-slot-count machine)
+  (machine 'memory-slots))
+
+(define-public (get-machine-stack-limit machine)
+  (machine 'stack-limit))
 
 ;;; Assembler
 
@@ -624,13 +632,20 @@
   (let ((sp (get-machine-register machine 'sp))
         (proc (make-primitive-exp (stack-push-value inst) machine labels))
         (memory (get-machine-memory machine))
-        (pc (get-machine-register machine 'pc)))
+        (pc (get-machine-register machine 'pc))
+        (memory-size (get-machine-memory-slot-count machine))
+        (stack-limit (get-machine-stack-limit machine)))
     (lambda ()
-      (set-register-contents! sp
-                              (1- (get-register-contents sp))
-                              (get-machine-call-stack-depth machine))
-      (set-memory! memory (get-register-contents sp) (proc))
-      (advance-pc pc))))
+      (let* ((current-sp (get-register-contents sp))
+             (new-sp (1- current-sp)))
+        (if (and stack-limit
+                 (> (- memory-size new-sp) stack-limit))
+            (error "Stack overflow -- MACHINE" (- memory-size new-sp)))
+        (set-register-contents! sp
+                                new-sp
+                                (get-machine-call-stack-depth machine))
+        (set-memory! memory new-sp (proc))
+        (advance-pc pc)))))
 
 (define (stack-push-value inst)
   (cadr inst))
@@ -729,10 +744,11 @@
 
 ;;; Utilities
 
-(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer))
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
   (let ((machine (make-machine n-registers
                                n-memory-slots
-                               #:register-trace-renderer register-trace-renderer)))
+                               #:register-trace-renderer register-trace-renderer
+                               #:stack-limit stack-limit)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
       machine)))
@@ -1088,5 +1104,41 @@
           (call factorial)))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 120))
+
+;;; Test stack-limit: no-overflow
+(let* ((stack-limit 5)
+       (machine
+        (make-machine-load-text
+         4
+         512
+         `((alias 1 rax)
+           (assign (reg rax) (const 0)) ; Counter
+           test
+           (test (op <) (reg rax) (const ,stack-limit))
+           (jez (label end))
+           (stack-push (reg rax))
+           (assign (reg rax) (op +) (reg rax) (const 1))
+           (goto (label test))
+           end)
+         #:stack-limit stack-limit)))
+  (start-machine machine))
+
+;;; Test stack-limit: overflow
+(let* ((stack-limit 5)
+       (machine
+        (make-machine-load-text
+         4
+         512
+         `((alias 1 rax)
+           (assign (reg rax) (const 0)) ; Counter
+           test
+           (test (op <) (reg rax) (const ,(1+ stack-limit)))
+           (jez (label end))
+           (stack-push (reg rax))
+           (assign (reg rax) (op +) (reg rax) (const 1))
+           (goto (label test))
+           end)
+         #:stack-limit stack-limit)))
+  (test-error (start-machine machine)))
 
 (test-end "virt-machine-test")
