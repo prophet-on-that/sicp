@@ -70,7 +70,7 @@
     (assign (reg rax) (const ,(+ the-cars-offset (* 4 max-num-pairs))))
     (mem-store (const ,read-buffer-pointer) (reg rax))))
 
-(define (memory-management-defs max-num-pairs memory-size)
+(define (memory-management-defs num-registers max-num-pairs memory-size)
   `(
     ;; Args:
     ;; 0 - car of new pair
@@ -241,7 +241,7 @@
     ,@(map
        (lambda (i)
          `(stack-push (reg ,i)))
-       (range 0 max-num-pairs))
+       (range 0 num-registers))
     (mem-store (const ,free-pair-pointer) (const 0))
     ;; Relocate all pairs on stack
     (assign (reg rax) (reg sp))         ; Stack index pointer
@@ -289,7 +289,7 @@
     ,@(map
        (lambda (i)
          `(stack-pop (reg ,i)))
-       (reverse (range 0 max-num-pairs)))
+       (reverse (range 0 num-registers)))
     (ret)
 
     ;; Args:
@@ -634,10 +634,10 @@
 
 ;;; Utilities
 
-(define (wrap-code max-num-pairs memory-size code)
+(define (wrap-code num-registers max-num-pairs memory-size code)
   `(,@(init max-num-pairs)
     (goto (label start))
-    ,@(memory-management-defs max-num-pairs memory-size)
+    ,@(memory-management-defs num-registers max-num-pairs memory-size)
     start
     ,@code))
 
@@ -697,13 +697,21 @@
 (define test-read-buffer-offset (+ the-cars-offset
                                    (* 4 test-max-num-pairs)))
 
-(define (make-test-machine code)
-  (make-machine-load-text
-   test-num-registers
-   test-memory-size
-   (wrap-code test-max-num-pairs test-memory-size code)
-   #:register-trace-renderer register-trace-renderer
-   #:stack-limit test-stack-size))
+(define* (make-test-machine code #:key
+                            (num-registers test-num-registers)
+                            (stack-size test-stack-size)
+                            (max-num-pairs test-max-num-pairs)
+                            (read-buffer-size test-read-buffer-size))
+  (let ((memory-size (+ the-cars-offset
+                        (* 4 max-num-pairs)
+                        read-buffer-size
+                        stack-size)))
+    (make-machine-load-text
+     num-registers
+     memory-size
+     (wrap-code num-registers max-num-pairs memory-size code)
+     #:register-trace-renderer register-trace-renderer
+     #:stack-limit stack-size)))
 
 (test-begin "asm-interpreter-test")
 
