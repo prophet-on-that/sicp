@@ -38,7 +38,10 @@
 ;;; 5 - no space for a new pair
 (define error-read-list-bad-start-char 8)
 (define error-read-unterminated-input 9)
-(define error-read-unknown-char 10)
+(define error-read-symbol-bad-start-char 10)
+
+(define (get-read-buffer-offset max-num-pairs)
+  (+ the-cars-offset (* 4 max-num-pairs)))
 
 (define (init max-num-pairs)
   `((alias ,ret ret)
@@ -67,7 +70,7 @@
     (mem-store (const ,new-cdrs-pointer) (reg rax))
 
     ;; Initialise read-buffer-pointer
-    (assign (reg rax) (const ,(+ the-cars-offset (* 4 max-num-pairs))))
+    (assign (reg rax) (const ,(get-read-buffer-offset max-num-pairs)))
     (mem-store (const ,read-buffer-pointer) (reg rax))))
 
 (define (memory-management-defs num-registers max-num-pairs memory-size)
