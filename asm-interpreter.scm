@@ -20,7 +20,6 @@
 (define rbx 2)
 (define rcx 3)
 (define rdx 4)
-(define continue 4)
 
 ;;; Memory layout
 (define the-cars-pointer 0)
