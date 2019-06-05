@@ -5,7 +5,17 @@
              (srfi srfi-1)
              (sicp eval-utils))
 
-(define trace-function-call-depth 4)
+(define* (print-with-indent exp depth #:key (indent-width 4) (max-depth 10))
+  (if (< depth max-depth)
+      (format #t
+              "trace: ~v_~a\n"
+              (* depth indent-width)
+              exp)
+      (format #t
+              "trace: ~v_<~a> ~a\n"
+              (* max-depth indent-width)
+              depth
+              exp)))
 
 ;;; Register
 
@@ -26,10 +36,9 @@
                (let ((prev contents))
                  (set! contents val)
                  (if trace
-                     (format #t
-                             "trace: ~v_~a\n"
-                             (* call-stack-depth trace-function-call-depth)
-                             (trace-renderer name prev val))))))
+                     (print-with-indent
+                      (trace-renderer name prev val)
+                      call-stack-depth)))))
             ((eq? message 'set-trace!) set-trace!)
             (else
              (error "Unknown message -- REGISTER" message))))
@@ -147,10 +156,9 @@
             'done
             (let ((next-inst (car insts)))
               (if trace
-                  (format #t
-                          "trace: ~v_~a\n"
-                          (* call-stack-depth trace-function-call-depth)
-                          (instruction-text next-inst)))
+                  (print-with-indent
+                   (instruction-text next-inst)
+                   call-stack-depth))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
