@@ -542,6 +542,100 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Args:
+    ;; 0 - ASCII character to test
+    list-delimiter-char?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ,@(call 'list-start-char? 'rax)
+    (jne (label list-delimiter-char?-end))
+    ,@(call 'list-end-char? 'rax)
+
+    list-delimiter-char?-end
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed symbol and the address
+    ;; after the last character parsed
+    parse-symbol
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (reg rax))                 ; Current char
+    ,@(test-char-in-group 'rcx 'rdx 'symbol-start)
+    (jez (label parse-symbol-error))
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    ,@(call 'parse-symbol-remainder 'rax 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rbx) (reg ret)) ; The remainder of the symbol as a list
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))   ; Index after the end of the symbol
+    ,@(call 'cons 'rcx 'rbx)
+    (assign (reg rbx) (reg ret)) ; The parsed symbol as a character list
+    ,@(call 'intern-symbol 'rbx)
+    ,@(call 'cons 'ret 'rax)
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    parse-symbol-error
+    (error (const ,error-read-symbol-bad-start-char))
+
+    ;; Args:
+    ;; 0 - memory address from which to start parsing
+    ;; 1 - first memory address after the buffer
+    ;; Output: pair containing the parsed symbol from the current
+    ;; point as a list of characters and the address after the last
+    ;; character parsed
+    parse-symbol-remainder
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (test (op <) (reg rax) (reg rbx))
+    (jez (label parse-symbol-remainder-base-case))
+    (mem-load (reg rcx) (reg rax))                 ; Current char
+    ,@(test-char-in-group 'rcx 'rdx 'symbol-body)
+    (jez (label parse-symbol-remainder-base-case))
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    ,@(call 'parse-symbol-remainder 'rax 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rbx) (reg ret))        ; The character list for the rest of the symbol
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))        ; Index after the last parsed character
+    ,@(call 'cons 'rcx 'rbx)            ; The character list from this point
+    ,@(call 'cons 'ret 'rax)
+    (goto (label parse-symbol-remainder-end))
+
+    parse-symbol-remainder-base-case
+    (assign (reg rcx) (const ,empty-list))
+    ,@(call 'cons 'rcx 'rax)
+
+    parse-symbol-remainder-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    intern-symbol
+    (ret)
+    ;; TODO
+    ;; TODO: ensure symbol list is carried over in garbage collection
+
     ;; Args:
     ;; 0 - memory address from which to start parsing
     ;; 1 - first memory address after the buffer
@@ -567,7 +661,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (jne (label parse-list-remainder-int))
     ,@(call 'list-start-char? 'rcx)
     (jne (label parse-list-remainder-list))
-    (goto (label read-unknown-char))
+    (goto (label parse-list-remainder-symbol))
 
     parse-list-remainder-whitespace
     (assign (reg rax) (op +) (reg rax) (const 1))
@@ -585,6 +679,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
     parse-list-remainder-list
     ,@(call 'parse-list 'rax 'rbx)
+    (goto (label parse-list-remainder-continue))
+
+    parse-list-remainder-symbol
+    ,@(call 'parse-symbol 'rax 'rbx)
     (goto (label parse-list-remainder-continue))
 
     parse-list-remainder-continue
@@ -613,9 +711,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
     read-unterminated-input
     (error (const ,error-read-unterminated-input))
-
-    read-unknown-char
-    (error (const ,error-read-unknown-char))
 
     ;; Args:
     ;; 0 - memory address from which to start parsing
@@ -665,7 +760,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (jne (label parse-exp-int))
     ,@(call 'list-start-char? 'rcx)
     (jne (label parse-exp-list))
-    (goto (label read-unknown-char))
+    (goto (label parse-exp-symbol))
 
     parse-exp-whitespace
     (assign (reg rax) (op +) (reg rax) (const 1))
@@ -677,6 +772,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
     parse-exp-list
     ,@(call 'parse-list 'rax 'rbx)
+    (goto (label parse-exp-end))
+
+    parse-exp-symbol
+    ,@(call 'parse-symbol 'rax 'rbx)
     (goto (label parse-exp-end))
 
     parse-exp-end
