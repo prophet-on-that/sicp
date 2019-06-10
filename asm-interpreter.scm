@@ -28,7 +28,9 @@
 (define new-cars-pointer 3)
 (define new-cdrs-pointer 4)
 (define read-buffer-pointer 5)
-(define the-cars-offset 8)
+(define char-table-offset 8)
+(define char-table-size 128)
+(define the-cars-offset (+ char-table-offset char-table-size))
 
 ;;; Exit codes
 ;;; 1 - attempting to take CAR of a non-pair
@@ -42,6 +44,42 @@
 
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
+
+(define number-chars "0123456789")
+(define symbol-start-chars "!#$%&*+,-./:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz{|}~")
+(define char-groups
+  `((whitespace . " ")
+    (number . ,number-chars)
+    (list-start . "(")
+    (list-end . ")")
+    (symbol-start . ,symbol-start-chars)
+    (symbol-body . ,(string-append symbol-start-chars number-chars))))
+
+(define (char-group-bitmask char)
+  (fold
+   (lambda (char-group i bitmask)
+     (if (string-index (cdr char-group) char)
+         (logior (integer-expt 2 i) bitmask)
+         bitmask))
+   0
+   char-groups
+   (iota (length char-groups))))
+
+(define (test-char-in-group reg-name target-reg group-name)
+  "Test char in register REG-NAME for membership of group
+GROUP-NAME. Modify TARGET-REG during operation."
+  (let ((group-mask
+         (integer-expt
+          2
+          (list-index
+           (lambda (elem)
+             (eq? group-name (car elem)))
+           char-groups))))
+    (if group-mask
+        `((mem-load (reg ,target-reg) (op +) (const ,char-table-offset) (reg ,reg-name))
+          (assign (reg ,target-reg) (op logand) (const ,group-mask) (reg ,target-reg))
+          (test (op >) (reg ,target-reg) (const 0)))
+        (error "Unrecognised group name -- TEST-CHAR-IN-GROUP" group-name))))
 
 (define (init max-num-pairs)
   `((alias ,ret ret)
@@ -71,7 +109,20 @@
 
     ;; Initialise read-buffer-pointer
     (assign (reg rax) (const ,(get-read-buffer-offset max-num-pairs)))
-    (mem-store (const ,read-buffer-pointer) (reg rax))))
+    (mem-store (const ,read-buffer-pointer) (reg rax))
+
+    ;; Initialise char table. For parsing expressions, we store an
+    ;; integer for each character representing the various character
+    ;; groups (whitespace, number etc) that the character belongs
+    ;; to. We then index the table with the character's numeric
+    ;; representation and test the appropriate bit to determine if it
+    ;; belongs to a group.
+    ,@(map
+       (lambda (n)
+         (let ((bitmask (char-group-bitmask (integer->char n)))
+               (offset (+ n char-table-offset)))
+           `(mem-store (const ,offset) (const ,bitmask))))
+       (iota char-table-size))))
 
 (define (memory-management-defs num-registers max-num-pairs memory-size)
   `(
