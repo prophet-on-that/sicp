@@ -726,8 +726,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (mem-load (reg rcx) (reg rax))                 ; Current char
     ,@(call 'list-start-char? 'rcx)
     (jez (label parse-list-error))
-    (test (op =) (reg rcx) (const ,(char->integer #\()))
-    (jez (label parse-list-error))
     (assign (reg rax) (op +) (reg rax) (const 1))
     ,@(call 'parse-list-remainder 'rax 'rbx)
     (stack-pop (reg rcx))
