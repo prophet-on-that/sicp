@@ -81,6 +81,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
           (test (op >) (reg ,target-reg) (const 0)))
         (error "Unrecognised group name -- TEST-CHAR-IN-GROUP" group-name))))
 
+(define parse-failed-value 0)
+
 (define (init max-num-pairs)
   `((alias ,ret ret)
     (alias ,rax rax)
@@ -469,51 +471,52 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rax))
     (ret)
 
-    ;; Args:
-    ;; 0 - ASCII character to test
-    numeric-char?
-    (stack-push (reg rax))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (test (op >=) (reg rax) (const ,(char->integer #\0)))
-    (jez (label numeric-char?-end))
-    (test (op <=) (reg rax) (const ,(char->integer #\9)))
+    ;; ;; Args:
+    ;; ;; 0 - ASCII character to test
+    ;; numeric-char?
+    ;; (stack-push (reg rax))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ;; (test (op >=) (reg rax) (const ,(char->integer #\0)))
+    ;; (jez (label numeric-char?-end))
+    ;; (test (op <=) (reg rax) (const ,(char->integer #\9)))
 
-    numeric-char?-end
-    (stack-pop (reg rax))
-    (ret)
+    ;; numeric-char?-end
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    ;; Args:
-    ;; 0 - ASCII character to test
-    whitespace-char?
-    (stack-push (reg rax))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (test (op =) (reg rax) (const ,(char->integer #\ )))
-    (stack-pop (reg rax))
-    (ret)
+    ;; ;; Args:
+    ;; ;; 0 - ASCII character to test
+    ;; whitespace-char?
+    ;; (stack-push (reg rax))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ;; (test (op =) (reg rax) (const ,(char->integer #\ )))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    ;; Args:
-    ;; 0 - ASCII character to test
-    list-start-char?
-    (stack-push (reg rax))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (test (op =) (reg rax) (const ,(char->integer #\()))
-    (stack-pop (reg rax))
-    (ret)
+    ;; ;; Args:
+    ;; ;; 0 - ASCII character to test
+    ;; list-start-char?
+    ;; (stack-push (reg rax))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ;; (test (op =) (reg rax) (const ,(char->integer #\()))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    ;; Args:
-    ;; 0 - ASCII character to test
-    list-end-char?
-    (stack-push (reg rax))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (test (op =) (reg rax) (const ,(char->integer #\))))
-    (stack-pop (reg rax))
-    (ret)
+    ;; ;; Args:
+    ;; ;; 0 - ASCII character to test
+    ;; list-end-char?
+    ;; (stack-push (reg rax))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ;; (test (op =) (reg rax) (const ,(char->integer #\))))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
     ;; Args:
     ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
+    ;; 1 - first memory address after the end of the input string
     ;; Output: pair containing the parsed integer and the address
-    ;; after the last character parsed
+    ;; after the last character parsed, or PARSE-FAILED-VALUE
+    ;; indicating parsing has failed.
     parse-int
     (stack-push (reg rax))
     (stack-push (reg rbx))
@@ -521,266 +524,286 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (assign (reg rcx) (const 0))        ; Parsed number
-    parse-int-test
     (test (op <) (reg rax) (reg rbx))
-    (jez (label parse-int-end))
-    (mem-load (reg rdx) (reg rax))      ; Current char
-    ,@(call 'numeric-char? 'rdx)
-    (jez (label parse-int-end))
-    (assign (reg rdx) (op -) (reg rdx) (const ,(char->integer #\0)))
-    (assign (reg rcx) (op *) (reg rcx) (const 10))
-    (assign (reg rcx) (op +) (reg rcx) (reg rdx))
+    (jez (label parse-int-error))
+    (mem-load (reg rcx) (reg rax))      ; Current char
+    ,@(test-char-in-group 'rcx 'rdx 'number)
+    (jez (label parse-int-error))
+    (assign (reg rdx) (op -) (reg rcx) (const ,(char->integer #\0))) ; Parsed number so far
+    (assign (reg rax) (op +) (reg rax) (const 1))
+
+    parse-int-test
+    (stack-push (reg rdx))
+    (test (op <) (reg rax) (reg rbx))
+    (jez (label parse-int-complete))
+    (mem-load (reg rcx) (reg rax))      ; Current char
+    ,@(test-char-in-group 'rcx 'rdx 'whitespace)
+    (jne (label parse-int-complete))
+    ,@(test-char-in-group 'rcx 'rdx 'list-end)
+    (jne (label parse-int-complete))
+    ,@(test-char-in-group 'rcx 'rdx 'number)
+    (jez (label parse-int-error))
+    (stack-pop (reg rdx))
+    (assign (reg rcx) (op -) (reg rcx) (const ,(char->integer #\0)))
+    (assign (reg rdx) (op *) (reg rdx) (const 10))
+    (assign (reg rdx) (op +) (reg rdx) (reg rcx))
     (assign (reg rax) (op +) (reg rax) (const 1))
     (goto (label parse-int-test))
 
+    parse-int-error
+    (assign (reg ret) (const ,parse-failed-value))
+    (goto (label parse-int-end))
+
+    parse-int-complete
+    (stack-pop (reg rdx))
+    (assign (reg rdx) (op logior) (reg rdx) (const ,number-tag))
+    ,@(call 'cons 'rdx 'rax)
+
     parse-int-end
-    (assign (reg rcx) (op logior) (reg rcx) (const ,number-tag))
-    ,@(call 'cons 'rcx 'rax)
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
 
-    ;; Args:
-    ;; 0 - ASCII character to test
-    list-delimiter-char?
-    (stack-push (reg rax))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    ,@(call 'list-start-char? 'rax)
-    (jne (label list-delimiter-char?-end))
-    ,@(call 'list-end-char? 'rax)
+    ;; ;; Args:
+    ;; ;; 0 - ASCII character to test
+    ;; list-delimiter-char?
+    ;; (stack-push (reg rax))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ;; ,@(call 'list-start-char? 'rax)
+    ;; (jne (label list-delimiter-char?-end))
+    ;; ,@(call 'list-end-char? 'rax)
 
-    list-delimiter-char?-end
-    (stack-pop (reg rax))
-    (ret)
+    ;; list-delimiter-char?-end
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    ;; Args:
-    ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
-    ;; Output: pair containing the parsed symbol and the address
-    ;; after the last character parsed
-    parse-symbol
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (stack-push (reg rcx))
-    (stack-push (reg rdx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (mem-load (reg rcx) (reg rax))                 ; Current char
-    ,@(test-char-in-group 'rcx 'rdx 'symbol-start)
-    (jez (label parse-symbol-error))
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    ,@(call 'parse-symbol-remainder 'rax 'rbx)
-    (assign (reg rax) (reg ret))
-    ,@(call 'car 'rax)
-    (assign (reg rbx) (reg ret)) ; The remainder of the symbol as a list
-    ,@(call 'cdr 'rax)
-    (assign (reg rax) (reg ret))   ; Index after the end of the symbol
-    ,@(call 'cons 'rcx 'rbx)
-    (assign (reg rbx) (reg ret)) ; The parsed symbol as a character list
-    ,@(call 'intern-symbol 'rbx)
-    ,@(call 'cons 'ret 'rax)
-    (stack-pop (reg rdx))
-    (stack-pop (reg rcx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ;; ;; Args:
+    ;; ;; 0 - memory address from which to start parsing
+    ;; ;; 1 - first memory address after the buffer
+    ;; ;; Output: pair containing the parsed symbol and the address
+    ;; ;; after the last character parsed
+    ;; parse-symbol
+    ;; (stack-push (reg rax))
+    ;; (stack-push (reg rbx))
+    ;; (stack-push (reg rcx))
+    ;; (stack-push (reg rdx))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    ;; (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ;; (mem-load (reg rcx) (reg rax))                 ; Current char
+    ;; ,@(test-char-in-group 'rcx 'rdx 'symbol-start)
+    ;; (jez (label parse-symbol-error))
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; ,@(call 'parse-symbol-remainder 'rax 'rbx)
+    ;; (assign (reg rax) (reg ret))
+    ;; ,@(call 'car 'rax)
+    ;; (assign (reg rbx) (reg ret)) ; The remainder of the symbol as a list
+    ;; ,@(call 'cdr 'rax)
+    ;; (assign (reg rax) (reg ret))   ; Index after the end of the symbol
+    ;; ,@(call 'cons 'rcx 'rbx)
+    ;; (assign (reg rbx) (reg ret)) ; The parsed symbol as a character list
+    ;; ,@(call 'intern-symbol 'rbx)
+    ;; ,@(call 'cons 'ret 'rax)
+    ;; (stack-pop (reg rdx))
+    ;; (stack-pop (reg rcx))
+    ;; (stack-pop (reg rbx))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    parse-symbol-error
-    (error (const ,error-read-symbol-bad-start-char))
+    ;; parse-symbol-error
+    ;; (error (const ,error-read-symbol-bad-start-char))
 
-    ;; Args:
-    ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
-    ;; Output: pair containing the parsed symbol from the current
-    ;; point as a list of characters and the address after the last
-    ;; character parsed
-    parse-symbol-remainder
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (stack-push (reg rcx))
-    (stack-push (reg rdx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (test (op <) (reg rax) (reg rbx))
-    (jez (label parse-symbol-remainder-base-case))
-    (mem-load (reg rcx) (reg rax))                 ; Current char
-    ,@(test-char-in-group 'rcx 'rdx 'symbol-body)
-    (jez (label parse-symbol-remainder-base-case))
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    ,@(call 'parse-symbol-remainder 'rax 'rbx)
-    (assign (reg rax) (reg ret))
-    ,@(call 'car 'rax)
-    (assign (reg rbx) (reg ret))        ; The character list for the rest of the symbol
-    ,@(call 'cdr 'rax)
-    (assign (reg rax) (reg ret))        ; Index after the last parsed character
-    ,@(call 'cons 'rcx 'rbx)            ; The character list from this point
-    ,@(call 'cons 'ret 'rax)
-    (goto (label parse-symbol-remainder-end))
+    ;; ;; Args:
+    ;; ;; 0 - memory address from which to start parsing
+    ;; ;; 1 - first memory address after the buffer
+    ;; ;; Output: pair containing the parsed symbol from the current
+    ;; ;; point as a list of characters and the address after the last
+    ;; ;; character parsed
+    ;; parse-symbol-remainder
+    ;; (stack-push (reg rax))
+    ;; (stack-push (reg rbx))
+    ;; (stack-push (reg rcx))
+    ;; (stack-push (reg rdx))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    ;; (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ;; (test (op <) (reg rax) (reg rbx))
+    ;; (jez (label parse-symbol-remainder-base-case))
+    ;; (mem-load (reg rcx) (reg rax))      ; Current char
+    ;; ,@(test-char-in-group 'rcx 'rdx 'symbol-body)
+    ;; (jez (label parse-symbol-remainder-base-case))
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; ,@(call 'parse-symbol-remainder 'rax 'rbx)
+    ;; (assign (reg rax) (reg ret))
+    ;; ,@(call 'car 'rax)
+    ;; (assign (reg rbx) (reg ret)) ; The character list for the rest of the symbol
+    ;; ,@(call 'cdr 'rax)
+    ;; (assign (reg rax) (reg ret)) ; Index after the last parsed character
+    ;; ,@(call 'cons 'rcx 'rbx)     ; The character list from this point
+    ;; ,@(call 'cons 'ret 'rax)
+    ;; (goto (label parse-symbol-remainder-end))
 
-    parse-symbol-remainder-base-case
-    (assign (reg rcx) (const ,empty-list))
-    ,@(call 'cons 'rcx 'rax)
+    ;; parse-symbol-remainder-base-case
+    ;; (assign (reg rcx) (const ,empty-list))
+    ;; ,@(call 'cons 'rcx 'rax)
 
-    parse-symbol-remainder-end
-    (stack-pop (reg rdx))
-    (stack-pop (reg rcx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ;; parse-symbol-remainder-end
+    ;; (stack-pop (reg rdx))
+    ;; (stack-pop (reg rcx))
+    ;; (stack-pop (reg rbx))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    intern-symbol
-    (ret)
-    ;; TODO
-    ;; TODO: ensure symbol list is carried over in garbage collection
+    ;; intern-symbol
+    ;; (ret)
+    ;; ;; TODO
+    ;; ;; TODO: ensure symbol list is carried over in garbage collection
 
-    ;; Args:
-    ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
-    ;; Output: pair containing the parsed list and the address
-    ;; after the last character parsed
-    parse-list-remainder
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (stack-push (reg rcx))
-    (stack-push (reg rdx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ;; ;; Args:
+    ;; ;; 0 - memory address from which to start parsing
+    ;; ;; 1 - first memory address after the buffer
+    ;; ;; Output: pair containing the parsed list and the address
+    ;; ;; after the last character parsed
+    ;; parse-list-remainder
+    ;; (stack-push (reg rax))
+    ;; (stack-push (reg rbx))
+    ;; (stack-push (reg rcx))
+    ;; (stack-push (reg rdx))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    ;; (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
-    parse-list-remainder-test
-    (test (op <) (reg rax) (reg rbx))
-    (jez (label read-unterminated-input))
-    (mem-load (reg rcx) (reg rax))      ; Current char
-    ,@(call 'whitespace-char? 'rcx)
-    (jne (label parse-list-remainder-whitespace))
-    ,@(call 'list-end-char? 'rcx)
-    (jne (label parse-list-remainder-empty-list))
-    ,@(call 'numeric-char? 'rcx)
-    (jne (label parse-list-remainder-int))
-    ,@(call 'list-start-char? 'rcx)
-    (jne (label parse-list-remainder-list))
-    (goto (label parse-list-remainder-symbol))
+    ;; parse-list-remainder-test
+    ;; (test (op <) (reg rax) (reg rbx))
+    ;; (jez (label read-unterminated-input))
+    ;; (mem-load (reg rcx) (reg rax))      ; Current char
+    ;; ,@(call 'whitespace-char? 'rcx)
+    ;; (jne (label parse-list-remainder-whitespace))
+    ;; ,@(call 'list-end-char? 'rcx)
+    ;; (jne (label parse-list-remainder-empty-list))
+    ;; ,@(call 'numeric-char? 'rcx)
+    ;; (jne (label parse-list-remainder-int))
+    ;; ,@(call 'list-start-char? 'rcx)
+    ;; (jne (label parse-list-remainder-list))
+    ;; (goto (label parse-list-remainder-symbol))
 
-    parse-list-remainder-whitespace
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    (goto (label parse-list-remainder-test))
+    ;; parse-list-remainder-whitespace
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; (goto (label parse-list-remainder-test))
 
-    parse-list-remainder-empty-list
-    (assign (reg rcx) (const ,empty-list))
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    ,@(call 'cons 'rcx 'rax)
-    (goto (label parse-list-remainder-end))
+    ;; parse-list-remainder-empty-list
+    ;; (assign (reg rcx) (const ,empty-list))
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; ,@(call 'cons 'rcx 'rax)
+    ;; (goto (label parse-list-remainder-end))
 
-    parse-list-remainder-int
-    ,@(call 'parse-int 'rax 'rbx)
-    (goto (label parse-list-remainder-continue))
+    ;; parse-list-remainder-int
+    ;; ,@(call 'parse-int 'rax 'rbx)
+    ;; (goto (label parse-list-remainder-continue))
 
-    parse-list-remainder-list
-    ,@(call 'parse-list 'rax 'rbx)
-    (goto (label parse-list-remainder-continue))
+    ;; parse-list-remainder-list
+    ;; ,@(call 'parse-list 'rax 'rbx)
+    ;; (goto (label parse-list-remainder-continue))
 
-    parse-list-remainder-symbol
-    ,@(call 'parse-symbol 'rax 'rbx)
-    (goto (label parse-list-remainder-continue))
+    ;; parse-list-remainder-symbol
+    ;; ,@(call 'parse-symbol 'rax 'rbx)
+    ;; (goto (label parse-list-remainder-continue))
 
-    parse-list-remainder-continue
-    (assign (reg rcx) (reg ret))
-    ,@(call 'cdr 'rcx)
-    (assign (reg rdx) (reg ret))
-    ,@(call 'parse-list-remainder 'rdx 'rbx)
-    (assign (reg rax) (reg ret))
-    ,@(call 'cdr 'rax)
-    (assign (reg rbx) (reg ret))        ; Index after the end of the list
-    ,@(call 'car 'rax)
-    (assign (reg rax) (reg ret))        ; Remainder of the list
-    ,@(call 'car 'rcx)
-    (assign (reg rcx) (reg ret))        ; The current parsed value
-    ,@(call 'cons 'rcx 'rax)
-    (assign (reg rax) (reg ret))        ; The parsed list
-    ,@(call 'cons 'rax 'rbx)
-    (goto (label parse-list-remainder-end))
+    ;; parse-list-remainder-continue
+    ;; (assign (reg rcx) (reg ret))
+    ;; ,@(call 'cdr 'rcx)
+    ;; (assign (reg rdx) (reg ret))
+    ;; ,@(call 'parse-list-remainder 'rdx 'rbx)
+    ;; (assign (reg rax) (reg ret))
+    ;; ,@(call 'cdr 'rax)
+    ;; (assign (reg rbx) (reg ret))     ; Index after the end of the list
+    ;; ,@(call 'car 'rax)
+    ;; (assign (reg rax) (reg ret))        ; Remainder of the list
+    ;; ,@(call 'car 'rcx)
+    ;; (assign (reg rcx) (reg ret))        ; The current parsed value
+    ;; ,@(call 'cons 'rcx 'rax)
+    ;; (assign (reg rax) (reg ret))        ; The parsed list
+    ;; ,@(call 'cons 'rax 'rbx)
+    ;; (goto (label parse-list-remainder-end))
 
-    parse-list-remainder-end
-    (stack-pop (reg rdx))
-    (stack-pop (reg rcx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ;; parse-list-remainder-end
+    ;; (stack-pop (reg rdx))
+    ;; (stack-pop (reg rcx))
+    ;; (stack-pop (reg rbx))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    read-unterminated-input
-    (error (const ,error-read-unterminated-input))
+    ;; read-unterminated-input
+    ;; (error (const ,error-read-unterminated-input))
 
-    ;; Args:
-    ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
-    ;; Output: pair containing the parsed list and the address
-    ;; after the last character parsed
-    parse-list
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (stack-push (reg rcx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (mem-load (reg rcx) (reg rax))                 ; Current char
-    ,@(call 'list-start-char? 'rcx)
-    (jez (label parse-list-error))
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    ,@(call 'parse-list-remainder 'rax 'rbx)
-    (stack-pop (reg rcx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ;; ;; Args:
+    ;; ;; 0 - memory address from which to start parsing
+    ;; ;; 1 - first memory address after the buffer
+    ;; ;; Output: pair containing the parsed list and the address
+    ;; ;; after the last character parsed
+    ;; parse-list
+    ;; (stack-push (reg rax))
+    ;; (stack-push (reg rbx))
+    ;; (stack-push (reg rcx))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    ;; (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ;; (mem-load (reg rcx) (reg rax))                 ; Current char
+    ;; ,@(call 'list-start-char? 'rcx)
+    ;; (jez (label parse-list-error))
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; ,@(call 'parse-list-remainder 'rax 'rbx)
+    ;; (stack-pop (reg rcx))
+    ;; (stack-pop (reg rbx))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
 
-    parse-list-error
-    (error (const ,error-read-list-bad-start-char))
+    ;; parse-list-error
+    ;; (error (const ,error-read-list-bad-start-char))
 
-    ;; Args:
-    ;; 0 - memory address from which to start parsing
-    ;; 1 - first memory address after the buffer
-    ;; Output: pair containing the parsed expression and the address
-    ;; after the last character parsed
-    parse-exp
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (stack-push (reg rcx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ;; ;; Args:
+    ;; ;; 0 - memory address from which to start parsing
+    ;; ;; 1 - first memory address after the buffer
+    ;; ;; Output: pair containing the parsed expression and the address
+    ;; ;; after the last character parsed
+    ;; parse-exp
+    ;; (stack-push (reg rax))
+    ;; (stack-push (reg rbx))
+    ;; (stack-push (reg rcx))
+    ;; (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
+    ;; (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
-    parse-exp-test
-    (test (op <) (reg rax) (reg rbx))
-    (jez (label read-unterminated-input))
-    (mem-load (reg rcx) (reg rax))      ; Current char
-    ,@(call 'whitespace-char? 'rcx)
-    (jne (label parse-exp-whitespace))
-    ,@(call 'numeric-char? 'rcx)
-    (jne (label parse-exp-int))
-    ,@(call 'list-start-char? 'rcx)
-    (jne (label parse-exp-list))
-    (goto (label parse-exp-symbol))
+    ;; parse-exp-test
+    ;; (test (op <) (reg rax) (reg rbx))
+    ;; (jez (label read-unterminated-input))
+    ;; (mem-load (reg rcx) (reg rax))      ; Current char
+    ;; ,@(call 'whitespace-char? 'rcx)
+    ;; (jne (label parse-exp-whitespace))
+    ;; ,@(call 'numeric-char? 'rcx)
+    ;; (jne (label parse-exp-int))
+    ;; ,@(call 'list-start-char? 'rcx)
+    ;; (jne (label parse-exp-list))
+    ;; (goto (label parse-exp-symbol))
 
-    parse-exp-whitespace
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    (goto (label parse-exp-test))
+    ;; parse-exp-whitespace
+    ;; (assign (reg rax) (op +) (reg rax) (const 1))
+    ;; (goto (label parse-exp-test))
 
-    parse-exp-int
-    ,@(call 'parse-int 'rax 'rbx)
-    (goto (label parse-exp-end))
+    ;; parse-exp-int
+    ;; ,@(call 'parse-int 'rax 'rbx)
+    ;; (goto (label parse-exp-end))
 
-    parse-exp-list
-    ,@(call 'parse-list 'rax 'rbx)
-    (goto (label parse-exp-end))
+    ;; parse-exp-list
+    ;; ,@(call 'parse-list 'rax 'rbx)
+    ;; (goto (label parse-exp-end))
 
-    parse-exp-symbol
-    ,@(call 'parse-symbol 'rax 'rbx)
-    (goto (label parse-exp-end))
+    ;; parse-exp-symbol
+    ;; ,@(call 'parse-symbol 'rax 'rbx)
+    ;; (goto (label parse-exp-end))
 
-    parse-exp-end
-    (stack-pop (reg rcx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ;; parse-exp-end
+    ;; (stack-pop (reg rcx))
+    ;; (stack-pop (reg rbx))
+    ;; (stack-pop (reg rax))
+    ;; (ret)
     ))
 
 ;;; Utilities
@@ -1202,51 +1225,51 @@ GROUP-NAME. Modify TARGET-REG during operation."
   (start-machine machine)
   (test-eqv (get-memory memory free-pair-pointer) 1))
 
-;;; Test numeric-char?: valid values
-(for-each
- (lambda (char)
-   (let ((machine
-          (make-test-machine
-           `((assign (reg rax) (const ,(char->integer char)))
-             ,@(call 'numeric-char? 'rax)))))
-     (start-machine machine)
-     (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
- (string->list "0123456789"))
+;; ;;; Test numeric-char?: valid values
+;; (for-each
+;;  (lambda (char)
+;;    (let ((machine
+;;           (make-test-machine
+;;            `((assign (reg rax) (const ,(char->integer char)))
+;;              ,@(call 'numeric-char? 'rax)))))
+;;      (start-machine machine)
+;;      (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
+;;  (string->list "0123456789"))
 
-;;; Test numeric-char?: invalid values
-(for-each
- (lambda (char)
-   (let ((machine
-          (make-test-machine
-           `((assign (reg rax) (const ,(char->integer char)))
-             ,@(call 'numeric-char? 'rax)))))
-     (start-machine machine)
-     (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
- (string->list " azAZ!"))
+;; ;;; Test numeric-char?: invalid values
+;; (for-each
+;;  (lambda (char)
+;;    (let ((machine
+;;           (make-test-machine
+;;            `((assign (reg rax) (const ,(char->integer char)))
+;;              ,@(call 'numeric-char? 'rax)))))
+;;      (start-machine machine)
+;;      (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
+;;  (string->list " azAZ!"))
 
-;;; Test whitespace-char?: valid values
-(for-each
- (lambda (char)
-   (let ((machine
-          (make-test-machine
-           `((assign (reg rax) (const ,(char->integer char)))
-             ,@(call 'whitespace-char? 'rax)))))
-     (start-machine machine)
-     (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
- (string->list " "))
+;; ;;; Test whitespace-char?: valid values
+;; (for-each
+;;  (lambda (char)
+;;    (let ((machine
+;;           (make-test-machine
+;;            `((assign (reg rax) (const ,(char->integer char)))
+;;              ,@(call 'whitespace-char? 'rax)))))
+;;      (start-machine machine)
+;;      (test-eqv (get-register-contents (get-machine-flag machine)) 1)))
+;;  (string->list " "))
 
-;;; Test whitespace-char?: invalid values
-(for-each
- (lambda (char)
-   (let ((machine
-          (make-test-machine
-           `((assign (reg rax) (const ,(char->integer char)))
-             ,@(call 'whitespace-char? 'rax)))))
-     (start-machine machine)
-     (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
- (string->list "09azAZ!"))
+;; ;;; Test whitespace-char?: invalid values
+;; (for-each
+;;  (lambda (char)
+;;    (let ((machine
+;;           (make-test-machine
+;;            `((assign (reg rax) (const ,(char->integer char)))
+;;              ,@(call 'whitespace-char? 'rax)))))
+;;      (start-machine machine)
+;;      (test-eqv (get-register-contents (get-machine-flag machine)) 0)))
+;;  (string->list "09azAZ!"))
 
-;;; Test parse-int: valid values
+;;; Test parse-int: success cases
 (for-each
    (lambda (test-case)
      (let* ((str
@@ -1264,7 +1287,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
             (machine
              (make-test-machine
               `((assign (reg rax) (const ,test-read-buffer-offset))
-                (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
                 ,@(call 'parse-int 'rax 'rbx)
                 (assign (reg rax) (reg ret))
                 ,@(call 'car 'rax)
@@ -1280,218 +1303,270 @@ GROUP-NAME. Modify TARGET-REG during operation."
          (logior parsed-number number-tag))
        (test-eqv (get-register-contents (get-machine-register machine ret))
          (+ test-read-buffer-offset count-chars-read))))
-   '(
-     "0"
+   '("0"
      "9"
      "999"
      "1001"
      "001111"
-     ("0 " 0 1)
-     ("0)" 0 1)
-     ("9d" 9 1)
-     ("900d " 900 3)))
+     ("9 " 9 1)
+     ("9)" 9 1)))
 
-;;; Test parse-list: '()
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-list 'rax 'rbx)
-                  (assign (reg rax) (reg ret))
-                  ,@(call 'cdr 'rax)
-                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
-                  ,@(call 'car 'rax)
-                  (assign (reg rax) (reg ret))))) ; The parsed list
-      (exp (string->list (format #f "~a" '()))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list))
-
-;;; Test parse-list: '(1 2)
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-list 'rax 'rbx)
-                  (assign (reg rax) (reg ret))
-                  ,@(call 'cdr 'rax)
-                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
-                  ,@(call 'car 'rax)
-                  (assign (reg rax) (reg ret)) ; The parsed list
-                  ,@(call 'car 'rax)
-                  (assign (reg rcx) (reg ret))  ; CAR of list
-                  ,@(call 'cadr 'rax)
-                  (assign (reg rdx) (reg ret)) ; CADR of list
-                  ,@(call 'cddr 'rax)))) ; CDDR of list
-      (exp (string->list (format #f "~a" '(1 2)))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag 1))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag 2))
-  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
-
-;;; Test parse-list: '((1) 2)
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-list 'rax 'rbx)
-                  (assign (reg rax) (reg ret))
-                  ,@(call 'cdr 'rax)
-                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
-                  ,@(call 'car 'rax)
-                  (assign (reg rax) (reg ret)) ; The parsed list
-                  ,@(call 'caar 'rax)
-                  (assign (reg rcx) (reg ret))  ; CAAR of list
-                  ,@(call 'cadr 'rax)
-                  (assign (reg rdx) (reg ret)) ; CADR of list
-                  ,@(call 'cddr 'rax)))) ; CDDR of list
-      (exp (string->list (format #f "~a" '((1) 2)))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag 1))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag 2))
-  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
-
-;;; Test parse-list: unusual whitespace
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-list 'rax 'rbx)
-                  (assign (reg rax) (reg ret))
-                  ,@(call 'cdr 'rax)
-                  (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
-                  ,@(call 'car 'rax)
-                  (assign (reg rax) (reg ret)) ; The parsed list
-                  ,@(call 'car 'rax)
-                  (assign (reg rcx) (reg ret))  ; CAR of list
-                  ,@(call 'cadr 'rax)
-                  (assign (reg rdx) (reg ret)) ; CADR of list
-                  ,@(call 'cddr 'rax)))) ; CDDR of list
-      (exp (string->list "( 1  2   )")))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag 1))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag 2))
-  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
-
-;;; Test parse-list: error on unterminated input
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-list 'rax 'rbx))))
-      (exp (string->list "(1 2")))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (test-error #t (continue-machine machine)))
-
-;;; Test parse-exp: integer
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-exp 'rax 'rbx)
-                  (assign (reg rbx) (reg ret))
-                  ,@(call 'cdr 'rbx)
-                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
-                  ,@(call 'car 'rbx)
-                  (assign (reg rbx) (reg ret))))) ; The parsed value
-      (exp (string->list "9")))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (logior number-tag 9)))
-
-;;; Test parse-exp: integer with leading and trailing whitespace
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-exp 'rax 'rbx)
-                  (assign (reg rbx) (reg ret))
-                  ,@(call 'cdr 'rbx)
-                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
-                  ,@(call 'car 'rbx)
-                  (assign (reg rbx) (reg ret))))) ; The parsed value
-      (exp (string->list "  9  ")))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset 3))
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (logior number-tag 9)))
-
-;;; Test parse-exp: list
-(let ((machine (make-test-machine
-                `((assign (reg rax) (const ,test-read-buffer-offset))
-                  (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                  ,@(call 'parse-exp 'rax 'rbx)
-                  (assign (reg rbx) (reg ret))
-                  ,@(call 'cdr 'rbx)
-                  (assign (reg rax) (reg ret)) ; Index in buffer after parse
-                  ,@(call 'car 'rbx)
-                  (assign (reg rbx) (reg ret)) ; The parsed value
-                  ,@(call 'car 'rbx)
-                  (assign (reg rcx) (reg ret)) ; CAR of parsed value
-                  ,@(call 'cdr 'rbx)
-                  (assign (reg rdx) (reg ret))))) ; CDR of parsed value
-      (exp (string->list "(1)")))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag 1))
-  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
-
-;;; Test parse-exp: malformed input
+;;; Test parse-int: failure cases
 (for-each
- (lambda (str)
-   (let ((machine (make-test-machine
-                   `((assign (reg rax) (const ,test-read-buffer-offset))
-                     (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
-                     ,@(call 'parse-exp 'rax 'rbx))))
-         (exp (string->list str)))
+   (lambda (str)
+     (let* ((machine
+             (make-test-machine
+              `((assign (reg rax) (const ,test-read-buffer-offset))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+                ,@(call 'parse-int 'rax 'rbx)
+                (test (op =) (reg ret) (const ,parse-failed-value))
+                (jne (label end))
+                (error (const -1))
+
+                end)))
+            (memory (get-machine-memory machine)))
+       (reset-machine machine)
+       (write-memory memory
+                     test-read-buffer-offset
+                     (map char->integer (string->list str)))
+       (continue-machine machine)))
+   '(""
+     "d"
+     "1d"
+     "1."
+     "1'"
+     "1("))
+
+;;; Test parse-int: bounds checking
+(for-each
+ (lambda (test-case)
+   (let* ((str (car test-case))
+          (bound (cadr test-case))
+          (parsed-number (caddr test-case))
+          (machine
+           (make-test-machine
+            `((assign (reg rax) (const ,test-read-buffer-offset))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
+                ,@(call 'parse-int 'rax 'rbx)
+                (assign (reg rax) (reg ret))
+                ,@(call 'car 'rax)
+                (assign (reg rbx) (reg ret))
+                ,@(call 'cdr 'rax))))
+          (memory (get-machine-memory machine)))
      (reset-machine machine)
-     (write-memory (get-machine-memory machine)
+     (write-memory memory
                    test-read-buffer-offset
-                   (map char->integer exp))
-     (test-error (continue-machine machine))))
- '(")1 2 3)" "(1 2"))
+                   (map char->integer (string->list str)))
+     (continue-machine machine)
+     (test-eqv (get-register-contents (get-machine-register machine rbx))
+         (logior parsed-number number-tag))
+       (test-eqv (get-register-contents (get-machine-register machine ret))
+         (+ test-read-buffer-offset bound))))
+ '(("99" 1 9)
+   ("999" 2 99)
+   ("99d" 2 99)))
+
+;; ;;; Test parse-list: '()
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-list 'rax 'rbx)
+;;                   (assign (reg rax) (reg ret))
+;;                   ,@(call 'cdr 'rax)
+;;                   (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rax) (reg ret))))) ; The parsed list
+;;       (exp (string->list (format #f "~a" '()))))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list))
+
+;; ;;; Test parse-list: '(1 2)
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-list 'rax 'rbx)
+;;                   (assign (reg rax) (reg ret))
+;;                   ,@(call 'cdr 'rax)
+;;                   (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rax) (reg ret)) ; The parsed list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rcx) (reg ret))  ; CAR of list
+;;                   ,@(call 'cadr 'rax)
+;;                   (assign (reg rdx) (reg ret)) ; CADR of list
+;;                   ,@(call 'cddr 'rax)))) ; CDDR of list
+;;       (exp (string->list (format #f "~a" '(1 2)))))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rcx))
+;;     (logior number-tag 1))
+;;   (test-eqv (get-register-contents (get-machine-register machine rdx))
+;;     (logior number-tag 2))
+;;   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;; ;;; Test parse-list: '((1) 2)
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-list 'rax 'rbx)
+;;                   (assign (reg rax) (reg ret))
+;;                   ,@(call 'cdr 'rax)
+;;                   (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rax) (reg ret)) ; The parsed list
+;;                   ,@(call 'caar 'rax)
+;;                   (assign (reg rcx) (reg ret))  ; CAAR of list
+;;                   ,@(call 'cadr 'rax)
+;;                   (assign (reg rdx) (reg ret)) ; CADR of list
+;;                   ,@(call 'cddr 'rax)))) ; CDDR of list
+;;       (exp (string->list (format #f "~a" '((1) 2)))))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rcx))
+;;     (logior number-tag 1))
+;;   (test-eqv (get-register-contents (get-machine-register machine rdx))
+;;     (logior number-tag 2))
+;;   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;; ;;; Test parse-list: unusual whitespace
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-list 'rax 'rbx)
+;;                   (assign (reg rax) (reg ret))
+;;                   ,@(call 'cdr 'rax)
+;;                   (assign (reg rbx) (reg ret)) ; Index in buffer after parsing list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rax) (reg ret)) ; The parsed list
+;;                   ,@(call 'car 'rax)
+;;                   (assign (reg rcx) (reg ret))  ; CAR of list
+;;                   ,@(call 'cadr 'rax)
+;;                   (assign (reg rdx) (reg ret)) ; CADR of list
+;;                   ,@(call 'cddr 'rax)))) ; CDDR of list
+;;       (exp (string->list "( 1  2   )")))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rcx))
+;;     (logior number-tag 1))
+;;   (test-eqv (get-register-contents (get-machine-register machine rdx))
+;;     (logior number-tag 2))
+;;   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
+
+;; ;;; Test parse-list: error on unterminated input
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-list 'rax 'rbx))))
+;;       (exp (string->list "(1 2")))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (test-error #t (continue-machine machine)))
+
+;; ;;; Test parse-exp: integer
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-exp 'rax 'rbx)
+;;                   (assign (reg rbx) (reg ret))
+;;                   ,@(call 'cdr 'rbx)
+;;                   (assign (reg rax) (reg ret)) ; Index in buffer after parse
+;;                   ,@(call 'car 'rbx)
+;;                   (assign (reg rbx) (reg ret))))) ; The parsed value
+;;       (exp (string->list "9")))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rax))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (logior number-tag 9)))
+
+;; ;;; Test parse-exp: integer with leading and trailing whitespace
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-exp 'rax 'rbx)
+;;                   (assign (reg rbx) (reg ret))
+;;                   ,@(call 'cdr 'rbx)
+;;                   (assign (reg rax) (reg ret)) ; Index in buffer after parse
+;;                   ,@(call 'car 'rbx)
+;;                   (assign (reg rbx) (reg ret))))) ; The parsed value
+;;       (exp (string->list "  9  ")))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rax))
+;;     (+ test-read-buffer-offset 3))
+;;   (test-eqv (get-register-contents (get-machine-register machine rbx))
+;;     (logior number-tag 9)))
+
+;; ;;; Test parse-exp: list
+;; (let ((machine (make-test-machine
+;;                 `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                   (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                   ,@(call 'parse-exp 'rax 'rbx)
+;;                   (assign (reg rbx) (reg ret))
+;;                   ,@(call 'cdr 'rbx)
+;;                   (assign (reg rax) (reg ret)) ; Index in buffer after parse
+;;                   ,@(call 'car 'rbx)
+;;                   (assign (reg rbx) (reg ret)) ; The parsed value
+;;                   ,@(call 'car 'rbx)
+;;                   (assign (reg rcx) (reg ret)) ; CAR of parsed value
+;;                   ,@(call 'cdr 'rbx)
+;;                   (assign (reg rdx) (reg ret))))) ; CDR of parsed value
+;;       (exp (string->list "(1)")))
+;;   (reset-machine machine)
+;;   (write-memory (get-machine-memory machine)
+;;                 test-read-buffer-offset
+;;                 (map char->integer exp))
+;;   (continue-machine machine)
+;;   (test-eqv (get-register-contents (get-machine-register machine rax))
+;;     (+ test-read-buffer-offset (length exp)))
+;;   (test-eqv (get-register-contents (get-machine-register machine rcx))
+;;     (logior number-tag 1))
+;;   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
+
+;; ;;; Test parse-exp: malformed input
+;; (for-each
+;;  (lambda (str)
+;;    (let ((machine (make-test-machine
+;;                    `((assign (reg rax) (const ,test-read-buffer-offset))
+;;                      (assign (reg rbx) (const ,(+ test-read-buffer-offset test-read-buffer-size)))
+;;                      ,@(call 'parse-exp 'rax 'rbx))))
+;;          (exp (string->list str)))
+;;      (reset-machine machine)
+;;      (write-memory (get-machine-memory machine)
+;;                    test-read-buffer-offset
+;;                    (map char->integer exp))
+;;      (test-error (continue-machine machine))))
+;;  '(")1 2 3)" "(1 2"))
 
 ;;; Test eq successful: '((1) (2))
 (let ((machine
