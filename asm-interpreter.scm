@@ -1381,24 +1381,18 @@ GROUP-NAME. Modify TARGET-REG during operation."
                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
                    ,@(call 'parse-list 'rax 'rbx)
                    (assign (reg rax) (reg ret))
-
                    ,@(call 'car 'rax)
-                   (test (op =) (reg ret) (const ,empty-list))
-                   (jez (label test-error))
+                   (assign (reg rbx) (reg ret)) ; The parsed value
                    ,@(call 'cdr 'rax)
-                   (test (op =) (reg ret) (const ,(+ test-read-buffer-offset (length exp))))
-                   (jez (label test-error))
-                   (goto (label end))
-
-                   test-error
-                   (error (const -1))
-
-                   end))))
+                   (assign (reg rcx) (reg ret)))))) ; Index after parsing
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
                 test-read-buffer-offset
                 (map char->integer exp))
-  (continue-machine machine))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx)) empty-list)
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (+ test-read-buffer-offset (length exp))))
 
 ;;; Test parse-list: '(1 2)
 (let* ((l '(1 2))
@@ -1408,31 +1402,28 @@ GROUP-NAME. Modify TARGET-REG during operation."
                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
                    ,@(call 'parse-list 'rax 'rbx)
                    (assign (reg rax) (reg ret))
+                   ,@(call 'car 'rax)
+                   (assign (reg rbx) (reg ret)) ; Parsed value
                    ,@(call 'cdr 'rax)
-                   (test (op =) (reg ret) (const ,(+ test-read-buffer-offset (length exp))))
-                   (jez (label test-error))
-                   ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag (car l))))
-                   (jez (label test-error))
-                   ,@(call 'cadr 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag (cadr l))))
-                   (jez (label test-error))
-                   ,@(call 'cddr 'rax)
-                   (test (op =) (reg ret) (const ,empty-list))
-                   (jez (label test-error))
-                   (goto (label end))
-
-                   test-error
-                   (error (const -1))
-
-                   end))))
+                   (assign (reg rax) (reg ret)) ; Index after parsing
+                   ,@(call 'car 'rbx)
+                   (assign (reg rcx) (reg ret)) ; CAR of list
+                   ,@(call 'cadr 'rbx)
+                   (assign (reg rdx) (reg ret)) ; CADR of list
+                   ,@(call 'cddr 'rbx)))))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
                 test-read-buffer-offset
                 (map char->integer exp))
-  (continue-machine machine))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag (car l)))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag (cadr l)))
+  (test-eqv (get-register-contents (get-machine-register machine ret))
+    empty-list))
 
 ;;; Test parse-list: '((1) (2))
 (let* ((l '((1) (2)))
@@ -1442,31 +1433,28 @@ GROUP-NAME. Modify TARGET-REG during operation."
                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
                    ,@(call 'parse-list 'rax 'rbx)
                    (assign (reg rax) (reg ret))
-                   ,@(call 'cdr 'rax)
-                   (test (op =) (reg ret) (const ,(+ test-read-buffer-offset (length exp))))
-                   (jez (label test-error))
                    ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'caar 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag (caar l))))
-                   (jez (label test-error))
-                   ,@(call 'caadr 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag (caadr l))))
-                   (jez (label test-error))
-                   ,@(call 'cddr 'rax)
-                   (test (op =) (reg ret) (const ,empty-list))
-                   (jez (label test-error))
-                   (goto (label end))
-
-                   test-error
-                   (error (const -1))
-
-                   end))))
+                   (assign (reg rbx) (reg ret)) ; Parsed value
+                   ,@(call 'cdr 'rax)
+                   (assign (reg rax) (reg ret)) ; Index after parsing
+                   ,@(call 'caar 'rbx)
+                   (assign (reg rcx) (reg ret)) ; CAAR of list
+                   ,@(call 'caadr 'rbx)
+                   (assign (reg rdx) (reg ret)) ; CAADR of list
+                   ,@(call 'cddr 'rbx)))))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
                 test-read-buffer-offset
                 (map char->integer exp))
-  (continue-machine machine))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag (caar l)))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag (caadr l)))
+  (test-eqv (get-register-contents (get-machine-register machine ret))
+    empty-list))
 
 ;;; Test parse-list: '( ( 1) ( 2  )   )
 (let* ((exp (string->list (format #f "~a" "( ( 1) ( 2  )   )")))
@@ -1475,31 +1463,28 @@ GROUP-NAME. Modify TARGET-REG during operation."
                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
                    ,@(call 'parse-list 'rax 'rbx)
                    (assign (reg rax) (reg ret))
-                   ,@(call 'cdr 'rax)
-                   (test (op =) (reg ret) (const ,(+ test-read-buffer-offset (length exp))))
-                   (jez (label test-error))
                    ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'caar 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag 1)))
-                   (jez (label test-error))
-                   ,@(call 'caadr 'rax)
-                   (test (op =) (reg ret) (const ,(logior number-tag 2)))
-                   (jez (label test-error))
-                   ,@(call 'cddr 'rax)
-                   (test (op =) (reg ret) (const ,empty-list))
-                   (jez (label test-error))
-                   (goto (label end))
-
-                   test-error
-                   (error (const -1))
-
-                   end))))
+                   (assign (reg rbx) (reg ret)) ; Parsed value
+                   ,@(call 'cdr 'rax)
+                   (assign (reg rax) (reg ret)) ; Index after parsing
+                   ,@(call 'caar 'rbx)
+                   (assign (reg rcx) (reg ret)) ; CAAR of list
+                   ,@(call 'caadr 'rbx)
+                   (assign (reg rdx) (reg ret)) ; CAADR of list
+                   ,@(call 'cddr 'rbx)))))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
                 test-read-buffer-offset
                 (map char->integer exp))
-  (continue-machine machine))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax))
+    (+ test-read-buffer-offset (length exp)))
+  (test-eqv (get-register-contents (get-machine-register machine rcx))
+    (logior number-tag 1))
+  (test-eqv (get-register-contents (get-machine-register machine rdx))
+    (logior number-tag 2))
+  (test-eqv (get-register-contents (get-machine-register machine ret))
+    empty-list))
 
 ;;; Test parse-list failures
 (for-each
