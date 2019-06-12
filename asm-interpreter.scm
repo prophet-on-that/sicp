@@ -1233,6 +1233,81 @@ GROUP-NAME. Modify TARGET-REG during operation."
   (start-machine machine)
   (test-eqv (get-memory memory free-pair-pointer) 1))
 
+;;; Test equal? successful: '((1) (2))
+(let ((machine
+       (make-test-machine
+        `((goto (label _start))
+
+          build-list
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (stack-push (reg rcx))
+          (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+          (assign (reg rbx) (const ,empty-list))
+          ,@(call 'cons 'rax 'rbx)
+          (assign (reg rax) (reg ret))
+          ,@(call 'cons 'rax 'rbx)
+          (assign (reg rcx) (reg ret))
+          (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+          (assign (reg rbx) (const ,empty-list))
+          ,@(call 'cons 'rax 'rbx)
+          ,@(call 'cons 'ret 'rcx)
+          (stack-pop (reg rcx))
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
+          (ret)
+
+          _start
+          ,@(call 'build-list)
+          (assign (reg rax) (reg ret))
+          ,@(call 'build-list)
+          (assign (reg rbx) (reg ret))
+          ,@(call 'equal? 'rax 'rbx)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+
+;;; Test equal? unsuccessful: (1 2) vs (1 2 3)
+(let ((machine
+       (make-test-machine
+        `((goto (label _start))
+
+          ;; Args:
+          ;; 0 - integer M
+          ;; 1 - integer N
+          ;; Output: the list [M..N)
+          range
+          (stack-push (reg rax))
+          (stack-push (reg rbx))
+          (stack-push (reg rcx))
+          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
+          (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
+          (test (op >=) (reg rax) (reg rbx))
+          (jne (label range-base-case))
+          (assign (reg rcx) (op +) (reg rax) (const 1))
+          ,@(call 'range 'rcx 'rbx)
+          ,@(call 'cons 'rax 'ret)
+          (goto (label range-end))
+
+          range-base-case
+          (assign (reg ret) (const ,empty-list))
+
+          range-end
+          (stack-pop (reg rcx))
+          (stack-pop (reg rbx))
+          (stack-pop (reg rax))
+          (ret)
+
+          _start
+          (assign (reg rax) (const 0))
+          (assign (reg rbx) (const 2))
+          ,@(call 'range 'rax 'rbx)
+          (assign (reg rcx) (reg ret))
+          (assign (reg rbx) (const 3))
+          ,@(call 'range 'rax 'rbx)
+          ,@(call 'equal? 'rcx 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0))
+
 ;; ;;; Test numeric-char?: valid values
 ;; (for-each
 ;;  (lambda (char)
@@ -1687,79 +1762,5 @@ GROUP-NAME. Modify TARGET-REG during operation."
 ;;                    (map char->integer exp))
 ;;      (test-error (continue-machine machine))))
 ;;  '(")1 2 3)" "(1 2"))
-
-;;; Test eq successful: '((1) (2))
-(let ((machine
-       (make-test-machine
-        `((goto (label _start))
-
-          build-list
-          (stack-push (reg rax))
-          (stack-push (reg rbx))
-          (stack-push (reg rcx))
-          (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-          (assign (reg rbx) (const ,empty-list))
-          ,@(call 'cons 'rax 'rbx)
-          (assign (reg rax) (reg ret))
-          ,@(call 'cons 'rax 'rbx)
-          (assign (reg rcx) (reg ret))
-          (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-          (assign (reg rbx) (const ,empty-list))
-          ,@(call 'cons 'rax 'rbx)
-          ,@(call 'cons 'ret 'rcx)
-          (stack-pop (reg rcx))
-          (stack-pop (reg rbx))
-          (stack-pop (reg rax))
-          (ret)
-
-          _start
-          ,@(call 'build-list)
-          (assign (reg rax) (reg ret))
-          ,@(call 'build-list)
-          (assign (reg rbx) (reg ret))
-          ,@(call 'equal? 'rax 'rbx)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
-
-(let ((machine
-       (make-test-machine
-        `((goto (label _start))
-
-          ;; Args:
-          ;; 0 - integer M
-          ;; 1 - integer N
-          ;; Output: the list [M..N)
-          range
-          (stack-push (reg rax))
-          (stack-push (reg rbx))
-          (stack-push (reg rcx))
-          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
-          (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
-          (test (op >=) (reg rax) (reg rbx))
-          (jne (label range-base-case))
-          (assign (reg rcx) (op +) (reg rax) (const 1))
-          ,@(call 'range 'rcx 'rbx)
-          ,@(call 'cons 'rax 'ret)
-          (goto (label range-end))
-
-          range-base-case
-          (assign (reg ret) (const ,empty-list))
-
-          range-end
-          (stack-pop (reg rcx))
-          (stack-pop (reg rbx))
-          (stack-pop (reg rax))
-          (ret)
-
-          _start
-          (assign (reg rax) (const 0))
-          (assign (reg rbx) (const 2))
-          ,@(call 'range 'rax 'rbx)
-          (assign (reg rcx) (reg ret))
-          (assign (reg rbx) (const 3))
-          ,@(call 'range 'rax 'rbx)
-          ,@(call 'equal? 'rcx 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0))
 
 (test-end "asm-interpreter-test")
