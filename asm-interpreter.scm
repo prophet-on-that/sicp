@@ -291,6 +291,16 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ,@(call 'car 'ret)
     (ret)
 
+    ;; Args:
+    ;; 0 - pair from which to extract the caadr
+    ;; Output: caadr of pair
+    caadr
+    (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
+    ,@(call 'cdr 'ret)
+    ,@(call 'car 'ret)
+    ,@(call 'car 'ret)
+    (ret)
+
     gc
     ;; Push all data registers to the stack, so that the stack holds
     ;; all pair references
