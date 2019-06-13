@@ -426,19 +426,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ;; Args:
     ;; 0 - Object
     ;; 1 - Object
-    eq?
-    (stack-push (reg rax))
-    (stack-push (reg rbx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (test (op =) (reg rax) (reg rbx))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
-
-    ;; Args:
-    ;; 0 - Object
-    ;; 1 - Object
     equal?
     (stack-push (reg rax))
     (stack-push (reg rbx))
@@ -472,7 +459,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (goto (label equal?-entry))         ; TCO
 
     equal?-test-eq?
-    ,@(call 'eq? 'rax 'rbx)
+    (test (op =) (reg rax) (reg rbx))
 
     equal?-end
     (stack-pop (reg rdx))
