@@ -13,6 +13,7 @@
 (define number-tag #x20000000)
 (define broken-heart #x30000000)
 (define empty-list #x40000000)
+(define symbol-tag #x50000000)
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -28,6 +29,7 @@
 (define new-cars-pointer 3)
 (define new-cdrs-pointer 4)
 (define read-buffer-pointer 5)
+(define symbol-list 6)
 (define char-table-offset 8)
 (define char-table-size 128)
 (define the-cars-offset (+ char-table-offset char-table-size))
@@ -112,6 +114,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ;; Initialise read-buffer-pointer
     (assign (reg rax) (const ,(get-read-buffer-offset max-num-pairs)))
     (mem-store (const ,read-buffer-pointer) (reg rax))
+
+    ;; Initalise symbol list
+    (assign (reg rax) (const ,empty-list))
+    (mem-store (const ,symbol-list) (reg rax))
 
     ;; Initialise char table. For parsing expressions, we store an
     ;; integer for each character representing the various character
@@ -469,6 +475,60 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (ret)
 
     ;; Args:
+    ;; 0 - list holding the parsed characters of the symbol
+    ;; Output: the value uniquely identifying the symbol
+    ;;
+    ;; A symbol is identified by its index in SYMBOL-LIST.
+    ;; TODO: ensure symbol list is carried over in garbage collection
+    intern-symbol
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (const ,symbol-list))
+    (test (op =) (reg rbx) (const ,empty-list))
+    (jne (label intern-symbol-empty-list))
+    (assign (reg rcx) (const 0))        ; Index in SYMBOL-LIST
+
+    intern-symbol-test
+    ,@(call 'car 'rbx)
+    ,@(call 'equal? 'rax 'ret)
+    (jne (label intern-symbol-found))
+    (assign (reg rcx) (op +) (reg rcx) (const 1))
+    ,@(call 'cdr 'rbx)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label intern-symbol-not-found))
+    (assign (reg rbx) (reg ret))
+    (goto (label intern-symbol-test))
+
+    intern-symbol-empty-list
+    ;; Set SYMBOL-LIST to a singleton list
+    (assign (reg rdx) (const ,empty-list))
+    ,@(call 'cons 'rax 'rdx)
+    (mem-store (const ,symbol-list) (reg ret))
+    (assign (reg ret) (op logior) (const 0) (const ,symbol-tag))
+    (goto (label intern-symbol-end))
+
+    intern-symbol-found
+    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
+    (goto (label intern-symbol-end))
+
+    intern-symbol-not-found
+    ;; Add the symbol to the end of SYMBOL-LIST
+    (assign (reg rdx) (const ,empty-list))
+    ,@(call 'cons 'rax 'rdx)
+    ,@(call 'set-cdr! 'rbx 'ret)
+    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
+
+    intern-symbol-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
     ;; 0 - memory address from which to start parsing
     ;; 1 - first memory address after the end of the input string
     ;; Output: pair containing the parsed integer and the address
@@ -614,11 +674,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
-    (ret)
-
-    intern-symbol
-    ;; TODO
-    ;; TODO: ensure symbol list is carried over in garbage collection
     (ret)
 
     ;; Args:
@@ -797,6 +852,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
                       (format #f "n~d" val))
                      ((= tag broken-heart) "bh")
                      ((= tag empty-list) "()")
+                     ((= tag symbol-tag)
+                      (format #f "s~d" val))
                      (else
                       (format #f "~d/~d" (bit-extract tag 28 32) val)))
                (format #f "~d" obj))))
@@ -1491,5 +1548,60 @@ GROUP-NAME. Modify TARGET-REG during operation."
    "((1)"
    ")"
    ""))
+
+;;; Test parse-symbol success cases
+(for-each
+ (lambda (test-case)
+   (let* ((test-case-str
+           (if (pair? test-case)
+               (car test-case)
+               test-case))
+          (test-case-parsed-count
+           (if (pair? test-case)
+               (cadr test-case)
+               (string-length test-case)))
+          (exp (string->list test-case-str))
+          (machine (make-test-machine
+                    `((assign (reg rax) (const ,test-read-buffer-offset))
+                      (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                      ,@(call 'parse-symbol 'rax 'rbx)
+                      (assign (reg rax) (reg ret))
+                      ,@(call 'car 'rax)
+                      (assign (reg rbx) (reg ret))
+                      ,@(call 'cdr 'rax)
+                      (assign (reg rax) (reg ret))))))
+     (reset-machine machine)
+     (write-memory (get-machine-memory machine)
+                   test-read-buffer-offset
+                   (map char->integer exp))
+     (continue-machine machine)
+     (test-eqv (get-register-contents (get-machine-register machine rax))
+       (+ test-read-buffer-offset test-case-parsed-count))
+     (test-eqv (logand tag-mask
+                       (get-register-contents (get-machine-register machine rbx)))
+       symbol-tag)))
+ '("a"
+   "a0"
+   "a-0"
+   ("a0)" 2)
+   ("a0 " 2)))
+
+;;; Test parse-symbol failure
+(for-each
+ (lambda (test-case-str)
+   (let* ((exp (string->list test-case-str))
+          (machine (make-test-machine
+                    `((assign (reg rax) (const ,test-read-buffer-offset))
+                      (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                      ,@(call 'parse-symbol 'rax 'rbx)
+                      (assign (reg rax) (reg ret))))))
+     (reset-machine machine)
+     (write-memory (get-machine-memory machine)
+                   test-read-buffer-offset
+                   (map char->integer exp))
+     (continue-machine machine)
+     (test-eqv (get-register-contents (get-machine-register machine rax))
+       parse-failed-value)))
+ '("" "8" "8a"))
 
 (test-end "asm-interpreter-test")
