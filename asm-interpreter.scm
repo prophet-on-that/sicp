@@ -335,6 +335,9 @@ GROUP-NAME. Modify TARGET-REG during operation."
          `(stack-push (reg ,i)))
        (range 0 num-registers))
     (mem-store (const ,free-pair-pointer) (const 0))
+    ;; Relocate SYMBOL-LIST
+    (assign (reg rax) (const ,symbol-list))
+    ,@(call 'gc-relocate-pair 'rax)
     ;; Relocate all pairs on stack
     (assign (reg rax) (reg sp))         ; Stack index pointer
 
@@ -499,7 +502,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ;; Output: the value uniquely identifying the symbol
     ;;
     ;; A symbol is identified by its index in SYMBOL-LIST.
-    ;; TODO: ensure symbol list is carried over in garbage collection
     intern-symbol
     (stack-push (reg rax))
     (stack-push (reg rbx))
@@ -1709,5 +1711,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (test-eqv (logand tag-mask rbx-value) symbol-tag)
     (test-eqv (logand tag-mask rcx-value) symbol-tag)
     (test-assert (not (= rbx-value rcx-value)))))
+
+;;; TODO: test symbols are preserved after garbage collection
 
 (test-end "asm-interpreter-test")
