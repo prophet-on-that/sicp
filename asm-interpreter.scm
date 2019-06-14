@@ -847,7 +847,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define (wrap-code num-registers max-num-pairs memory-size code)
   `(,@(init max-num-pairs)
     (goto (label start))
-    ,@(memory-management-defs num-registers max-num-pairs memory-size #:devel? #t)
+    ,@(memory-management-defs num-registers max-num-pairs memory-size #:runtime-checks? #t)
     start
     ,@code))
 
