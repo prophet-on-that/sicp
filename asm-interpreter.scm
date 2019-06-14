@@ -618,20 +618,18 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (test (op =) (reg ret) (const ,parse-failed-value))
     (jne (label parse-symbol-error))
     (assign (reg rax) (reg ret))
-    ,@(call 'car 'rax)
-    (assign (reg rbx) (reg ret)) ; The remainder of the symbol as a list
     ,@(call 'cdr 'rax)
-    (assign (reg rax) (reg ret))   ; Index after the end of the symbol
-    ,@(call 'cons 'rcx 'rbx)
-    (assign (reg rbx) (reg ret)) ; The parsed symbol as a character list
-    ,@(call 'intern-symbol 'rbx)
-    ,@(call 'cons 'ret 'rax)            ; TODO: TCO
-    (goto (label parse-symbol-end))
+    (assign (reg rbx) (reg ret))   ; Index after the end of the symbol
+    ,@(call 'car 'rax)
+    (assign (reg rax) (reg ret)) ; The remainder of the symbol as a list
+    ,@(call 'cons 'rcx 'rax)
+    (assign (reg rax) (reg ret)) ; The parsed symbol as a character list
+    ,@(call 'intern-symbol 'rax)
+    (assign (reg rax) (reg ret))
+    (goto (label cons-entry))                 ; TCO
 
     parse-symbol-error
     (assign (reg ret) (const ,parse-failed-value))
-
-    parse-symbol-end
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
@@ -665,23 +663,21 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (test (op =) (reg ret) (const ,parse-failed-value))
     (jne (label parse-symbol-remainder-error))
     (assign (reg rax) (reg ret))
-    ,@(call 'car 'rax)
-    (assign (reg rbx) (reg ret)) ; The character list for the rest of the symbol
     ,@(call 'cdr 'rax)
-    (assign (reg rax) (reg ret)) ; Index after the last parsed character
-    ,@(call 'cons 'rcx 'rbx)     ; The character list from this point
-    ,@(call 'cons 'ret 'rax)            ; TODO: TCO
-    (goto (label parse-symbol-remainder-end))
+    (assign (reg rbx) (reg ret)) ; Index after the last parsed character
+    ,@(call 'car 'rax)
+    (assign (reg rax) (reg ret)) ; The character list for the rest of the symbol
+    ,@(call 'cons 'rcx 'rax)     ; The character list from this point
+    (assign (reg rax) (reg ret))
+    (goto (label cons-entry))           ; TCO
+
+    parse-symbol-remainder-base-case
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,empty-list))
+    (goto (label cons-entry))         ; TCO
 
     parse-symbol-remainder-error
     (assign (reg ret) (const ,parse-failed-value))
-    (goto (label parse-symbol-remainder-end))
-
-    parse-symbol-remainder-base-case
-    (assign (reg rcx) (const ,empty-list))
-    ,@(call 'cons 'rcx 'rax)            ; TODO: TCO
-
-    parse-symbol-remainder-end
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
