@@ -35,10 +35,10 @@
 (define the-cars-offset (+ char-table-offset char-table-size))
 
 ;;; Exit codes
-;;; 1 - attempting to take CAR of a non-pair
-;;; 2 - attempting to take CDR of a non-pair
-;;; 3 - attempting to set the CAR of a non-pair
-;;; 4 - attempting to set the CAR of a non-pair
+(define error-car-of-non-pair 1)
+(define error-cdr-of-non-pair 1)
+(define error-set-car-of-non-pair 3)
+(define error-set-cdr-of-non-pair 4)
 (define error-no-remaining-pairs 5)
 (define error-read-list-bad-start-char 8)
 (define error-read-unterminated-input 9)
@@ -132,7 +132,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
            `(mem-store (const ,offset) (const ,bitmask))))
        (iota char-table-size))))
 
-(define (memory-management-defs num-registers max-num-pairs memory-size)
+(define* (memory-management-defs num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
   `(
     ;; Args:
     ;; 0 - car of new pair
@@ -185,16 +185,14 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ;; Args:
     ;; 0 - Pair from which to retrieve car
     ;; Returns: car of pair
-    ;; TODO: test for pair in Scheme CAR implementation, for
-    ;; efficiency
     car
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (stack-push (reg rax))
-    (call pair?)
-    (jez (label car-invalid-arg))
-    (stack-pop (reg rax))
+    ,@(if runtime-checks?
+          `(,@(call 'pair? 'rax)
+            (jez (label car-invalid-arg)))
+          '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pair arrays
     (mem-load (reg rbx) (const ,the-cars-pointer))
     (assign (reg rax) (op +) (reg rax) (reg rbx))
@@ -202,8 +200,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-    car-invalid-arg
-    (error (const 1))
+
+    ,@(if runtime-checks?
+          `(car-invalid-arg
+            (error (const ,error-car-of-non-pair)))
+          '())
 
     ;; Args:
     ;; 0 - Pair to modify
@@ -212,10 +213,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (stack-push (reg rax))
-    (call pair?)
-    (jez (label set-car!-invalid-arg))
-    (stack-pop)
+    ,@(if runtime-checks?
+          `(,@(call 'pair? 'rax)
+            (jez (label set-car!-invalid-arg)))
+          '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pairs array
     (mem-load (reg rbx) (const ,the-cars-pointer))
     (assign (reg rax) (op +) (reg rax) (reg rbx)) ; Memory address of CAR of pair
@@ -224,22 +225,23 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-    set-car!-invalid-arg
-    (error (const 3))
+
+    ,@(if runtime-checks?
+          `(set-car!-invalid-arg
+            (error (const ,error-set-car-of-non-pair)))
+          '())
 
     ;; Args:
     ;; 0 - Pair from which to retrieve cdr
     ;; Returns: cdr of pair
-    ;; TODO: test for pair in Scheme CDR implementation, for
-    ;; efficiency
     cdr
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (stack-push (reg rax))
-    (call pair?)
-    (jez (label cdr-invalid-arg))
-    (stack-pop (reg rax))
+    ,@(if runtime-checks?
+          `(,@(call 'pair? 'rax)
+            (jez (label cdr-invalid-arg)))
+          '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pair arrays
     (mem-load (reg rbx) (const ,the-cdrs-pointer))
     (assign (reg rax) (op +) (reg rax) (reg rbx))
@@ -247,8 +249,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-    cdr-invalid-arg
-    (error (const 2))
+
+    ,@(if runtime-checks?
+          `(cdr-invalid-arg
+            (error (const ,error-cdr-of-non-pair)))
+          '())
 
     ;; Args:
     ;; 0 - Pair to modify
@@ -257,10 +262,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (stack-push (reg rax))
-    (call pair?)
-    (jez (label set-cdr!-invalid-arg))
-    (stack-pop)
+    ,@(if runtime-checks?
+          `(,@(call 'pair? 'rax)
+            (jez (label set-cdr!-invalid-arg)))
+          '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pairs array
     (mem-load (reg rbx) (const ,the-cdrs-pointer))
     (assign (reg rax) (op +) (reg rax) (reg rbx)) ; Memory address of CDR of pair
@@ -269,8 +274,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-    set-cdr!-invalid-arg
-    (error (const 3))
+
+    ,@(if runtime-checks?
+          `(set-cdr!-invalid-arg
+            (error (const ,error-set-cdr-of-non-pair)))
+          '())
 
     ;; Args:
     ;; 0 - pair from which to extract the cadr
@@ -837,7 +845,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define (wrap-code num-registers max-num-pairs memory-size code)
   `(,@(init max-num-pairs)
     (goto (label start))
-    ,@(memory-management-defs num-registers max-num-pairs memory-size)
+    ,@(memory-management-defs num-registers max-num-pairs memory-size #:devel? #t)
     start
     ,@code))
 
