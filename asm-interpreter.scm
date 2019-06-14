@@ -39,7 +39,7 @@
 ;;; 2 - attempting to take CDR of a non-pair
 ;;; 3 - attempting to set the CAR of a non-pair
 ;;; 4 - attempting to set the CAR of a non-pair
-;;; 5 - no space for a new pair
+(define error-no-remaining-pairs 5)
 (define error-read-list-bad-start-char 8)
 (define error-read-unterminated-input 9)
 (define error-read-symbol-bad-start-char 10)
@@ -138,35 +138,37 @@ GROUP-NAME. Modify TARGET-REG during operation."
     ;; 0 - car of new pair
     ;; 1 - cdr of new pair
     ;; Returns: newly-assigned pair
-    ;; TODO: trigger garbage collection when out of space
     cons
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; arg 1
+
+    cons-entry
     ;; Trigger garbage collection when no pairs are available
-    (mem-load (reg rax) (const ,free-pair-pointer))
-    (test (op >=) (reg rax) (const ,max-num-pairs))
+    (mem-load (reg rcx) (const ,free-pair-pointer))
+    (test (op >=) (reg rcx) (const ,max-num-pairs))
     (jez (label cons-after-gc))
     (call gc)
     ;; Throw error if no space exists after garbage collection
-    (mem-load (reg rax) (const ,free-pair-pointer))
-    (test (op >=) (reg rax) (const ,max-num-pairs))
+    (mem-load (reg rcx) (const ,free-pair-pointer))
+    (test (op >=) (reg rcx) (const ,max-num-pairs))
     (jez (label cons-after-gc))
-    (error (const 5))
+    (error (const ,error-no-remaining-pairs))
 
     cons-after-gc
-    (mem-load (reg rax) (const ,free-pair-pointer))
-    (mem-load (reg rbx) (const ,the-cars-pointer))
-    (assign (reg rbx) (op +) (reg rax) (reg rbx))
-    (mem-load (reg rcx) (op +) (reg bp) (const 2)) ; arg 0
-    (mem-store (reg rbx) (reg rcx))
-    (mem-load (reg rbx) (const ,the-cdrs-pointer))
-    (assign (reg rbx) (op +) (reg rax) (reg rbx))
-    (mem-load (reg rcx) (op +) (reg bp) (const 3)) ; arg 1
-    (mem-store (reg rbx) (reg rcx))
-    (assign (reg rbx) (op +) (reg rax) (const 1)) ; new free pair pointer
-    (mem-store (const ,free-pair-pointer) (reg rbx))
-    (assign (reg ret) (op logior) (reg rax) (const ,pair-tag))
+    (mem-load (reg rdx) (const ,the-cars-pointer))
+    (assign (reg rdx) (op +) (reg rcx) (reg rdx))
+    (mem-store (reg rdx) (reg rax))
+    (mem-load (reg rdx) (const ,the-cdrs-pointer))
+    (assign (reg rdx) (op +) (reg rcx) (reg rdx))
+    (mem-store (reg rdx) (reg rbx))
+    (assign (reg ret) (op logior) (reg rcx) (const ,pair-tag))
+    (assign (reg rcx) (op +) (reg rcx) (const 1)) ; new free pair pointer
+    (mem-store (const ,free-pair-pointer) (reg rcx))
+    (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
