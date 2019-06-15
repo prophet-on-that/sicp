@@ -1714,6 +1714,36 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (test-eqv (logand tag-mask rcx-value) symbol-tag)
     (test-assert (not (= rbx-value rcx-value)))))
 
-;;; TODO: test symbols are preserved after garbage collection
+;;; Test symbols are preserved after garbage collection
+;;;
+;;; Parse a symbol, trigger GC and check that the symbol list has the
+;;; correct structure.
+(let* ((max-num-pairs 128)
+       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+       (test-char #\a)
+       (exp (list test-char))
+       (machine (make-test-machine
+                 `((assign (reg rax) (const ,read-buffer-offset))
+                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                   ,@(call 'parse-exp 'rax 'rbx)
+                   (call gc)
+                   (mem-load (reg rax) (const ,symbol-list))
+                   ,@(call 'car 'rax)
+                   (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
+                   ,@(call 'cdr 'rax)
+                   (assign (reg rax) (reg ret)) ; Remainder of SYMBOL-LIST
+                   ,@(call 'car 'rbx)
+                   (assign (reg rcx) (reg ret)) ; First character in symbol
+                   ,@(call 'cdr 'rbx)
+                   (assign (reg rdx) (reg ret))) ; Remainder of character list
+                 #:max-num-pairs max-num-pairs)))
+  (reset-machine machine)
+  (write-memory (get-machine-memory machine)
+                read-buffer-offset
+                (map char->integer exp))
+  (continue-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
+  (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
+  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
 
 (test-end "asm-interpreter-test")
