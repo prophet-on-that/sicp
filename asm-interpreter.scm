@@ -906,8 +906,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
                             (* test-max-num-pairs 4)
                             test-stack-size
                             test-read-buffer-size))
-(define test-read-buffer-offset (+ the-cars-offset
-                                   (* 4 test-max-num-pairs)))
+(define test-read-buffer-offset (get-read-buffer-offset test-max-num-pairs))
 
 (define* (make-test-machine code #:key
                             (num-registers test-num-registers)
@@ -1624,10 +1623,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
 ;;; Test parse-exp: '(a b c)
 (let* ((max-num-pairs 128)
+       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
        (exp (string->list (format #f "~a" '(a b c))))
        (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                 `((assign (reg rax) (const ,read-buffer-offset))
+                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                    ,@(call 'parse-exp 'rax 'rbx)
                    (assign (reg rax) (reg ret))
                    ,@(call 'car 'rax)
@@ -1641,7 +1641,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
                  #:max-num-pairs max-num-pairs)))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
+                read-buffer-offset
                 (map char->integer exp))
   (continue-machine machine)
   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
@@ -1656,10 +1656,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
 ;;; Test parse-exp: '(a b a)
 (let* ((max-num-pairs 128)
+       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
        (exp (string->list (format #f "~a" '(a b a))))
        (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                 `((assign (reg rax) (const ,read-buffer-offset))
+                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                    ,@(call 'parse-exp 'rax 'rbx)
                    (assign (reg rax) (reg ret))
                    ,@(call 'car 'rax)
@@ -1673,7 +1674,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
                  #:max-num-pairs max-num-pairs)))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
+                read-buffer-offset
                 (map char->integer exp))
   (continue-machine machine)
   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
@@ -1688,10 +1689,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
 ;;; Test parse-exp: '(a aa)
 (let* ((max-num-pairs 128)
+       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
        (exp (string->list (format #f "~a" '(a b a))))
        (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                 `((assign (reg rax) (const ,read-buffer-offset))
+                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                    ,@(call 'parse-exp 'rax 'rbx)
                    (assign (reg rax) (reg ret))
                    ,@(call 'car 'rax)
@@ -1703,7 +1705,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
                  #:max-num-pairs max-num-pairs)))
   (reset-machine machine)
   (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
+                read-buffer-offset
                 (map char->integer exp))
   (continue-machine machine)
   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
