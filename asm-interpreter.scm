@@ -755,10 +755,9 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (goto (label parse-list-remainder-error))
 
     parse-list-remainder-empty-list
-    (assign (reg rax) (op +) (reg rax) (const 1))
-    (assign (reg rcx) (const ,empty-list))
-    ,@(call 'cons 'rcx 'rax)
-    (goto (label parse-list-remainder-end))
+    (assign (reg rbx) (op +) (reg rax) (const 1))
+    (assign (reg rax) (const ,empty-list))
+    (goto (label cons-entry))           ; TCO
 
     parse-list-remainder-continue
     (assign (reg rcx) (reg ret))
@@ -771,12 +770,12 @@ GROUP-NAME. Modify TARGET-REG during operation."
     (jne (label parse-list-remainder-error))
     (assign (reg rdx) (reg ret))
     ,@(call 'cdr 'rdx)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg ret))
     ,@(call 'car 'rdx)
     (assign (reg rdx) (reg ret))        ; The rest of the list
     ,@(call 'cons 'rcx 'rdx)            ; The parsed list
-    ,@(call 'cons 'ret 'rax)
-    (goto (label parse-list-remainder-end))
+    (assign (reg rax) (reg ret))
+    (goto (label cons-entry))           ; TCO
 
     parse-list-remainder-improper-list
     (assign (reg rax) (op +) (reg rax) (const 1))
@@ -803,8 +802,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
     parse-list-remainder-error
     (assign (reg ret) (const ,parse-failed-value))
-
-    parse-list-remainder-end
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
