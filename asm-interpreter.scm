@@ -116,8 +116,9 @@ array."
         (logior symbol-tag index)
         (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
 
-(define* (init max-num-pairs #:key (init-predefined-symbols #f))
-  `((alias ,ret ret)
+(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f) (init-predefined-symbols #f))
+  `(
+    (alias ,ret ret)
     (alias ,rax rax)
     (alias ,rbx rbx)
     (alias ,rcx rcx)
@@ -165,10 +166,10 @@ array."
 
     ,@(if init-predefined-symbols
           (append-map intern-symbol-code predefined-symbols)
-          '())))
+          '())
 
-(define* (memory-management-defs num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
-  `(
+    (goto (label _start))
+
     ;; Args:
     ;; 0 - car of new pair
     ;; 1 - cdr of new pair
@@ -655,7 +656,7 @@ array."
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
     (test (op <) (reg rax) (reg rbx))
     (jez (label parse-symbol-error))
-    (mem-load (reg rcx) (reg rax))                 ; Current char
+    (mem-load (reg rcx) (reg rax))      ; Current char
     ,@(test-char-in-group 'rcx 'rdx 'symbol-start)
     (jez (label parse-symbol-error))
     (assign (reg rax) (op +) (reg rax) (const 1))
@@ -671,7 +672,7 @@ array."
     (assign (reg rax) (reg ret)) ; The parsed symbol as a character list
     ,@(call 'intern-symbol 'rax)
     (assign (reg rax) (reg ret))
-    (goto (label cons-entry))                 ; TCO
+    (goto (label cons-entry))           ; TCO
 
     parse-symbol-error
     (assign (reg ret) (const ,parse-failed-value))
@@ -719,7 +720,7 @@ array."
     parse-symbol-remainder-base-case
     (assign (reg rbx) (reg rax))
     (assign (reg rax) (const ,empty-list))
-    (goto (label cons-entry))         ; TCO
+    (goto (label cons-entry))           ; TCO
 
     parse-symbol-remainder-error
     (assign (reg ret) (const ,parse-failed-value))
@@ -884,12 +885,12 @@ array."
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
     (test (op <) (reg rax) (reg rbx))
     (jez (label parse-list-error))
-    (mem-load (reg rcx) (reg rax))                 ; Current char
+    (mem-load (reg rcx) (reg rax))      ; Current char
     ,@(test-char-in-group 'rcx 'rcx 'list-start)
     (jez (label parse-list-error))
     (assign (reg rax) (op +) (reg rax) (const 1))
     (stack-push (reg rdx))
-    (goto (label parse-list-remainder-entry))     ; TCO
+    (goto (label parse-list-remainder-entry)) ; TCO
 
     parse-list-error
     (assign (reg ret) (const ,parse-failed-value))
@@ -897,16 +898,15 @@ array."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-    ))
+
+    _start))
 
 ;;; Utilities
 
 (define (wrap-code num-registers max-num-pairs memory-size code)
-  `(,@(init max-num-pairs)
-    (goto (label start))
-    ,@(memory-management-defs num-registers max-num-pairs memory-size #:runtime-checks? #t)
-    start
-    ,@code))
+  (append
+   (init num-registers max-num-pairs memory-size #:runtime-checks? #t)
+   code))
 
 (define (range min max)
   "Integer range between MIN (inclusive) and MAX (exclusive)."
@@ -1322,7 +1322,7 @@ array."
 ;;; Test equal? successful: '((1) (2))
 (let ((machine
        (make-test-machine
-        `((goto (label _start))
+        `((goto (label start))
 
           build-list
           (stack-push (reg rax))
@@ -1343,7 +1343,7 @@ array."
           (stack-pop (reg rax))
           (ret)
 
-          _start
+          start
           ,@(call 'build-list)
           (assign (reg rax) (reg ret))
           ,@(call 'build-list)
@@ -1355,7 +1355,7 @@ array."
 ;;; Test equal? unsuccessful: (1 2) vs (1 2 3)
 (let ((machine
        (make-test-machine
-        `((goto (label _start))
+        `((goto (label start))
 
           ;; Args:
           ;; 0 - integer M
@@ -1383,7 +1383,7 @@ array."
           (stack-pop (reg rax))
           (ret)
 
-          _start
+          start
           (assign (reg rax) (const 0))
           (assign (reg rbx) (const 2))
           ,@(call 'range 'rax 'rbx)
