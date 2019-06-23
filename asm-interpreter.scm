@@ -86,7 +86,37 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
 (define parse-failed-value 0)
 
-(define (init max-num-pairs)
+(define predefined-symbols
+  '("#f"
+    "#t"))
+
+(define (intern-symbol-code symbol-str)
+  (append
+   (append-map
+    (lambda (char i)
+      (call 'cons
+            `(const ,(char->integer char))
+            (if (= i 0)
+                `(const ,empty-list)
+                '(reg ret))))
+    (reverse (string->list symbol-str))
+    (iota (string-length symbol-str)))
+   `(,@(call 'intern-symbol 'ret))))
+
+(define (get-predefined-symbol-value symbol-str)
+  "Get the machine value for SYMBOL-STR which has been predefined in
+the machine. This is the index of SYMBOL-STR in the PREDEFINED-SYMBOLS
+array."
+  (let ((index
+         (list-index
+          (lambda (str)
+            (string=? str symbol-str))
+          predefined-symbols)))
+    (if (number? index)
+        (logior symbol-tag index)
+        (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
+
+(define* (init max-num-pairs #:key (init-predefined-symbols #f))
   `((alias ,ret ret)
     (alias ,rax rax)
     (alias ,rbx rbx)
@@ -131,7 +161,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
          (let ((bitmask (char-group-bitmask (integer->char n)))
                (offset (+ n char-table-offset)))
            `(mem-store (const ,offset) (const ,bitmask))))
-       (iota char-table-size))))
+       (iota char-table-size))
+
+    ,@(if init-predefined-symbols
+          (append-map intern-symbol-code predefined-symbols)
+          '())))
 
 (define* (memory-management-defs num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
   `(
