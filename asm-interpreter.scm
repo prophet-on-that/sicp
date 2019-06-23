@@ -94,11 +94,12 @@ GROUP-NAME. Modify TARGET-REG during operation."
   (append
    (append-map
     (lambda (char i)
-      (call 'cons
-            `(const ,(char->integer char))
-            (if (= i 0)
-                `(const ,empty-list)
-                '(reg ret))))
+      `((assign (reg rax) (const ,(char->integer char)))
+        (assign (reg rbx)
+                ,(if (= i 0)
+                     `(const ,empty-list)
+                     '(reg ret)))
+        ,@(call 'cons 'rax 'rbx)))
     (reverse (string->list symbol-str))
     (iota (string-length symbol-str)))
    `(,@(call 'intern-symbol 'ret))))
@@ -116,7 +117,7 @@ array."
         (logior symbol-tag index)
         (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
 
-(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f) (init-predefined-symbols #f))
+(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
   `(
     (alias ,ret ret)
     (alias ,rax rax)
@@ -163,10 +164,6 @@ array."
                (offset (+ n char-table-offset)))
            `(mem-store (const ,offset) (const ,bitmask))))
        (iota char-table-size))
-
-    ,@(if init-predefined-symbols
-          (append-map intern-symbol-code predefined-symbols)
-          '())
 
     (goto (label _start))
 
@@ -895,6 +892,14 @@ array."
     parse-list-error
     (assign (reg ret) (const ,parse-failed-value))
     (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    init-predefined-symbols
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    ,@(append-map intern-symbol-code predefined-symbols)
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
