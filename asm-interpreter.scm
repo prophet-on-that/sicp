@@ -224,6 +224,8 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+
+    car-entry
     ,@(if runtime-checks?
           `(,@(call 'pair? 'rax)
             (jez (label car-invalid-arg)))
@@ -273,6 +275,8 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+
+    cdr-entry
     ,@(if runtime-checks?
           `(,@(call 'pair? 'rax)
             (jez (label cdr-invalid-arg)))
