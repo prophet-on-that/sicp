@@ -784,6 +784,7 @@ otherwise."
 
 ;;; Test suite
 
+(test-runner-current (test-runner-simple))
 (test-begin "virt-machine-test")
 
 ;;; Test primitive assignment of constant
