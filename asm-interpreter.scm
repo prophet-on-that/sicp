@@ -14,6 +14,7 @@
 (define broken-heart #x30000000)
 (define empty-list #x40000000)
 (define symbol-tag #x50000000)
+(define error-magic-value #x60000000)
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -88,7 +89,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
 
 (define predefined-symbols
   '("#f"
-    "#t"))
+    "#t"
+    "error:assoc:not-found"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -903,6 +905,101 @@ array."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Scheme errors
+
+    ;; Construct a Scheme-level error. Used by internal definitions to
+    ;; signal errors. Represented as a pair where the CAR points to a
+    ;; magic internal value and the CDR points to the given context
+    ;; list.
+    ;; Args:
+    ;; 0 - list holding additional information to pass with the error.
+    ;; Output: error value holding a reference to the error list.
+    make-error
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+
+    make-error-entry
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,error-magic-value))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (goto (label cons-entry))           ; TCO
+
+    ;; Args:
+    ;; 0 - object to test
+    is-error
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ,@(call 'pair? 'rax)
+    (jez (label is-error-end))
+    ,@(call 'car 'rax)
+    (test (op =) (reg ret) (const ,error-magic-value))
+    (goto (label is-error-end))
+
+    is-error-end
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; ;; Environments
+
+    ;; Args:
+    ;; 0 - key (compared with eq?)
+    ;; 1 - value
+    ;; 2 - alist
+    ;; Output: new list including key-value mapping.
+    acons
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ,@(call 'cons 'rax 'rbx)
+    (assign (reg rax) (reg ret))
+    (mem-load (reg rbx) (op +) (reg bp) (const 4)) ; Arg 2
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (goto (label cons-entry))           ; TCO
+
+    ;; Implementation of ASSOC, using EQ? for equality testing.
+    ;; Args:
+    ;; 0 - key
+    ;; 1 - alist
+    ;; Output: the pair with the given KEY, or an error value if not
+    ;; found.
+    assoc
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1 - alist
+
+    assoc-test
+    (test (op =) (reg rbx) (const ,empty-list))
+    (jne (label assoc-not-found))
+    ,@(call 'car 'rbx)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'car 'rcx)
+    (test (op =) (reg ret) (reg rax))
+    (jne (label assoc-found))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label assoc-test))
+
+    assoc-found
+    (assign (reg ret) (reg rcx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    assoc-not-found
+    (assign (reg rax) (const ,(get-predefined-symbol-value "error:assoc:not-found")))
+    (assign (reg rbx) (const ,empty-list))
+    ,@(call 'cons 'rax 'rbx)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     _start))
 
@@ -1891,5 +1988,51 @@ array."
   (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
   (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
+
+;;; Environment testing
+
+;;; Test assoc 0 '()
+(let ((machine
+       (make-test-machine
+        `((assign (reg rax) (const 0))
+          (assign (reg rbx) (const ,empty-list))
+          ,@(call 'assoc 'rax rbx)
+          ,@(call 'is-error 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+
+;;; Test assoc 0 '((1 . 0) (0 . 1))
+(let ((machine
+       (make-test-machine
+        `((assign (reg rax) (const 0))
+          (assign (reg rbx) (const 1))
+          (assign (reg rcx) (const ,empty-list))
+          ,@(call 'acons 'rax 'rbx 'rcx)
+          (assign (reg rax) (const 1))
+          (assign (reg rbx) (const 0))
+          ,@(call 'acons 'rax 'rbx 'ret)
+          (assign (reg rax) (const 0))
+          ,@(call 'assoc 'rax 'ret)
+          ,@(call 'cdr 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine ret)) 1))
+
+;;; Test assoc 0 '((0 . 2) (0 . 1))
+;;;
+;;; Ensure ASSOC returns first occurrence of key in alist
+(let ((machine
+       (make-test-machine
+        `((assign (reg rax) (const 0))
+          (assign (reg rbx) (const 1))
+          (assign (reg rcx) (const ,empty-list))
+          ,@(call 'acons 'rax 'rbx 'rcx)
+          (assign (reg rax) (const 0))
+          (assign (reg rbx) (const 2))
+          ,@(call 'acons 'rax 'rbx 'ret)
+          (assign (reg rax) (const 0))
+          ,@(call 'assoc 'rax 'ret)
+          ,@(call 'cdr 'ret)))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine ret)) 2))
 
 (test-end "asm-interpreter-test")
