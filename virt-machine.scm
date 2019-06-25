@@ -763,15 +763,23 @@
 
 (export make-machine-load-text)
 
-(define-public (call label . regs)
+(define-public (call label . args)
+  "ARGS are recognised as registers if symbols and constants
+otherwise."
   (append
    (map
-    (lambda (reg)
-      `(stack-push (reg ,reg)))
-    (reverse regs))
+    (lambda (arg)
+      `(stack-push
+        ,(cond ((symbol? arg)
+                `(reg ,arg))
+               ((number? arg)
+                `(const ,arg))
+               (else
+                (error "Unknown arg type -- CALL" arg)))))
+    (reverse args))
    `((call ,label))
-   (if (not (null? regs))
-       `((assign (reg sp) (op +) (reg sp) (const ,(length regs))))
+   (if (not (null? args))
+       `((assign (reg sp) (op +) (reg sp) (const ,(length args))))
        '())))
 
 ;;; Test suite
