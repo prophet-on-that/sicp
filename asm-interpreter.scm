@@ -1005,6 +1005,33 @@ array."
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
+    ;; Args:
+    ;; 0  - number of arguments
+    ;; 1+ - arguments to LIST
+    ;; Output: new list of given arguments
+    list
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Number of remaining arguments to process
+    (assign (reg rbx) (const ,empty-list)) ; Partially-constructed list
+
+    list-test
+    (test (op >) (reg rax) (const 0))
+    (jez (label list-continue))
+    (mem-load (reg rcx) (op +) (reg bp) (const 2) (reg rax)) ; Next element of list
+    ,@(call 'cons 'rcx 'rbx)
+    (assign (reg rbx) (reg ret))
+    (assign (reg rax) (op -) (reg rax) (const 1))
+    (goto (label list-test))
+
+    list-continue
+    (assign (reg rbx) (reg ret))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
     _start))
 
 ;;; Utilities
@@ -2038,5 +2065,21 @@ array."
           ,@(call 'cdr 'ret)))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine ret)) 2))
+
+;;; Test list 0 1 2
+(let ((machine
+       (make-test-machine
+        `(,@(call 'list 2 0 1)
+          (assign (reg rax) (reg ret))
+          ,@(call 'car 'rax)
+          (assign (reg rbx) (reg ret))
+          ,@(call 'cadr 'rax)
+          (assign (reg rcx) (reg ret))
+          ,@(call 'cddr 'rax)
+          (assign (reg rdx) (reg ret))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine rbx)) 0)
+  (test-eqv (get-register-contents (get-machine-register machine rcx)) 1)
+  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
 
 (test-end "asm-interpreter-test")
