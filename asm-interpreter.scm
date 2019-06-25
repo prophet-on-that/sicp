@@ -2027,7 +2027,7 @@ array."
        (make-test-machine
         `((assign (reg rax) (const 0))
           (assign (reg rbx) (const ,empty-list))
-          ,@(call 'assoc 'rax rbx)
+          ,@(call 'assoc 'rax 'rbx)
           ,@(call 'is-error 'ret)))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
