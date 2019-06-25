@@ -2,7 +2,8 @@
 
 (use-modules (sicp virt-machine)
              (srfi srfi-64)
-             (srfi srfi-1))
+             (srfi srfi-1)
+             (ice-9 regex))
 
 ;;; Architecture: 32-bit
 ;;; Typed pointer tag: 4 bits for typed pointer information stored in
@@ -1114,972 +1115,1059 @@ array."
      #:register-trace-renderer register-trace-renderer
      #:stack-limit stack-size)))
 
-(test-begin "asm-interpreter-test")
+(define (test-match-only pattern)
+  "Skip test groups not matching the given PATTERN."
+  (lambda (runner)
+    (and (null? (test-runner-group-stack runner))
+         (not (string-match pattern
+                            (test-runner-test-name runner))))))
 
-;;; Test cons
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2)))))
-       (ret (get-machine-register machine ret))
-       (memory (get-machine-memory machine)))
-  (start-machine machine)
-  (test-eqv (get-register-contents ret) (logior pair-tag 0))
-  (test-eqv (get-memory memory free-pair-pointer) 1))
+(test-runner-current (test-runner-simple))
 
-;;; Test pair?: true
-(let* ((machine
+(test-group
+ "memory--cons"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2)))))
+        (ret (get-machine-register machine ret))
+        (memory (get-machine-memory machine)))
+   (start-machine machine)
+   (test-eqv (get-register-contents ret) (logior pair-tag 0))
+   (test-eqv (get-memory memory free-pair-pointer) 1)))
+
+(test-group
+ "memory--pair?--true"
+ ;; Test pair?: true
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (stack-push (reg ret))
+            (call pair?)
+            (stack-pop))))
+        (flag (get-machine-flag machine)))
+   (start-machine machine)
+   (test-eqv (get-register-contents flag) 1)))
+
+(test-group
+ "memory--pair?--false"
+ ;; Test pair?: false
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call pair?)
+            (stack-pop))))
+        (flag (get-machine-flag machine)))
+   (start-machine machine)
+   (test-eqv (get-register-contents flag) 0)))
+
+(test-group
+ "memory--car--success"
+ ;; Test car: valid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (stack-push (reg ret))
+            (call car)
+            (stack-pop))))
+        (ret (get-machine-register machine ret)))
+   (start-machine machine)
+   (test-eqv (get-register-contents ret) (logior number-tag 1))))
+
+(test-group
+ "memory--car--error"
+ ;; Test car: invalid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call car)
+            (stack-pop)))))
+   (test-error #t (start-machine machine))))
+
+(test-group
+ "memory--cdr--success"
+ ;; Test cdr: valid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (stack-push (reg ret))
+            (call cdr)
+            (stack-pop))))
+        (ret (get-machine-register machine ret)))
+   (start-machine machine)
+   (test-eqv (get-register-contents ret) (logior number-tag 2))))
+
+(test-group
+ "memory--cdr--error"
+ ;; Test cdr: invalid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cdr)
+            (stack-pop)))))
+   (test-error #t (start-machine machine))))
+
+(test-group
+ "memory--set-car!"
+ ;; Test set-car!: valid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (assign (reg rax) (reg ret))
+            (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
+            (stack-push (reg rbx))
+            (stack-push (reg rax))
+            (call set-car!)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (stack-push (reg rax))
+            (call car)
+            (stack-pop))))
+        (ret (get-machine-register machine ret)))
+   (start-machine machine)
+   (test-eqv (get-register-contents ret) (logior number-tag 3))))
+
+(test-group
+ "memory--set-car!--success"
+ ;; Test set-car!: invalid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (stack-push (reg rax))
+            (call set-car!)
+            (assign (reg sp) (op +) (reg sp) (const 2))))))
+   (test-error #t (start-machine machine))))
+
+(test-group
+ "memory--set-cdr!--success"
+ ;; Test set-cdr!: valid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (assign (reg rax) (reg ret))
+            (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
+            (stack-push (reg rbx))
+            (stack-push (reg rax))
+            (call set-cdr!)
+            (assign (reg sp) (op +) (reg sp) (const 2))
+            (stack-push (reg rax))
+            (call cdr)
+            (stack-pop))))
+        (ret (get-machine-register machine ret)))
+   (start-machine machine)
+   (test-eqv (get-register-contents ret) (logior number-tag 3))))
+
+(test-group
+ "memory--set-cdr!--error"
+ ;; Test set-cdr!: invalid pair
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (stack-push (reg rax))
+            (call set-cdr!)
+            (assign (reg sp) (op +) (reg sp) (const 2))))))
+   (test-error #t (start-machine machine))))
+
+(test-group
+ "memory--cadr"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (const 2))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (const 1))
+            ,@(call 'cons 'rax 'ret)
+            ,@(call 'cadr 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
+
+(test-group
+ "memory--cddr"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (const 2))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (const 1))
+            ,@(call 'cons 'rax 'ret)
+            ,@(call 'cddr 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
+
+(test-group
+ "memory--caar"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (const 1))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (const ,empty-list))
+            ,@(call 'cons 'ret 'rax)
+            ,@(call 'caar 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 1)))
+
+(test-group
+ "gc--single-preserved-pair"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (stack-pop)
+            (assign (reg rax) (reg ret))
+            (call gc)
+            (stack-push (reg rax))
+            (call car)
+            (assign (reg rbx) (reg ret))
+            (call cdr)
+            (stack-pop)
+            (assign (reg rcx) (reg ret)))))
+        (rax (get-machine-register machine rax))
+        (rbx (get-machine-register machine rbx))
+        (rcx (get-machine-register machine rcx)))
+   (start-machine machine)
+   (test-eqv (get-register-contents rax) (logior pair-tag 0))
+   (test-eqv (get-register-contents rbx) (logior number-tag 1))
+   (test-eqv (get-register-contents rcx) (logior number-tag 2))))
+
+(test-group
+ "gc--single-unpreserved-pair"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (stack-push (reg rax))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (stack-push (reg rax))
+            (call cons)
+            (stack-pop)
+            (assign (reg ret) (const 0))
+            (call gc))))
+        (memory (get-machine-memory machine)))
+   (start-machine machine)
+   (test-eqv (get-memory memory free-pair-pointer) 0)))
+
+(test-group
+ "gc--pair-multiple-references"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (reg ret))
+            (call gc))))
+        (memory (get-machine-memory machine))
+        (ret (get-machine-register machine ret))
+        (rax (get-machine-register machine rax)))
+   (start-machine machine)
+   (test-eqv (get-memory memory free-pair-pointer) 1)
+   (test-eqv (get-register-contents ret) (logior pair-tag 0))
+   (test-eqv (get-register-contents rax) (logior pair-tag 0))))
+
+(test-group
+ "gc--preserved-nested-pair"
+ ;; Test gc: preserved pair '((1 . 2) . (3 . 4))
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rcx) (reg ret))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 3))
+            (assign (reg rbx) (op logior) (const ,number-tag) (const 4))
+            ,@(call 'cons 'rax 'rbx)
+            ,@(call 'cons 'rcx 'ret)
+            (call gc)
+            ,@(call 'car 'ret)
+            ,@(call 'cdr 'ret))))
+        (memory (get-machine-memory machine))
+        (ret (get-machine-register machine ret)))
+   (start-machine machine)
+   (test-eqv (get-memory memory free-pair-pointer) 3)
+   (test-eqv (get-register-contents ret) (logior number-tag 2))))
+
+(test-group
+ "gc--triggering"
+ (let* ((machine
+         (make-test-machine
+          `(
+            ;; Create max number of (unreferenced) pairs
+            (assign (reg rax) (const 0))
+            loop
+            (test (op <) (reg rax) (const ,test-max-num-pairs))
+            (jez (label after-loop))
+            ,@(call 'cons 'rax rax)
+            (assign (reg ret) (const 0))
+            (assign (reg rax) (op +) (reg rax) (const 1))
+            (goto (label loop))
+
+            after-loop
+            ;; Create further pair
+            (assign (reg rax) (const ,test-max-num-pairs))
+            ,@(call 'cons 'rax 'rax)
+            (assign (reg rax) (reg ret))
+            ,@(call 'car 'rax)
+            (assign (reg rbx) (reg ret))
+            ,@(call 'cdr 'rax)
+            (assign (reg rcx) (reg ret)))))
+        (memory (get-machine-memory machine))
+        (rbx (get-machine-register machine rbx))
+        (rcx (get-machine-register machine rcx)))
+   (start-machine machine)
+   (test-eqv (get-memory memory free-pair-pointer) 1)
+   (test-eqv (get-register-contents rbx) test-max-num-pairs)
+   (test-eqv (get-register-contents rcx) test-max-num-pairs)))
+
+(test-group
+ "gc--fails-when-out-of-pairs"
+ (let* ((machine
+         (make-test-machine
+          `(
+            ;; Create max number of pairs
+            (assign (reg rax) (const 0))
+            loop
+            (test (op <) (reg rax) (const ,test-max-num-pairs))
+            (jez (label after-loop))
+            ,@(call 'cons 'rax rax)
+            (stack-push (reg ret))
+            (assign (reg rax) (op +) (reg rax) (const 1))
+            (goto (label loop))
+
+            after-loop
+            ;; Create further pair
+            (assign (reg rax) (const ,test-max-num-pairs))
+            ,@(call 'cons 'rax 'rax)))))
+   (test-error #t (start-machine machine))))
+
+(test-group
+ "gc--multiple-calls"
+ (let* ((machine
+         (make-test-machine
+          `((assign (reg rax) (const 0))
+            (assign (reg rbx) (const ,(1+ (* test-max-num-pairs 2)))) ; Limit
+            loop
+            (test (op <) (reg rax) (reg rbx))
+            (jez (label after-loop))
+            ,@(call 'cons 'rax rax)
+            (assign (reg ret) (const 0))
+            (assign (reg rax) (op +) (reg rax) (const 1))
+            (goto (label loop))
+            after-loop)))
+        (memory (get-machine-memory machine)))
+   (start-machine machine)
+   (test-eqv (get-memory memory free-pair-pointer) 1)))
+
+(test-group
+ "lib--equal?--success"
+ ;; Test equal? successful: '((1) (2))
+ (let ((machine
         (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
+         `((goto (label start))
+
+           build-list
            (stack-push (reg rax))
+           (stack-push (reg rbx))
+           (stack-push (reg rcx))
            (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (stack-push (reg ret))
-           (call pair?)
-           (stack-pop))))
-       (flag (get-machine-flag machine)))
-  (start-machine machine)
-  (test-eqv (get-register-contents flag) 1))
-
-;;; Test pair?: false
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call pair?)
-           (stack-pop))))
-       (flag (get-machine-flag machine)))
-  (start-machine machine)
-  (test-eqv (get-register-contents flag) 0))
-
-;;; Test car: valid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (stack-push (reg ret))
-           (call car)
-           (stack-pop))))
-       (ret (get-machine-register machine ret)))
-  (start-machine machine)
-  (test-eqv (get-register-contents ret) (logior number-tag 1)))
-
-;;; Test car: invalid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call car)
-           (stack-pop)))))
-  (test-error #t (start-machine machine)))
-
-;;; Test cdr: valid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (stack-push (reg ret))
-           (call cdr)
-           (stack-pop))))
-       (ret (get-machine-register machine ret)))
-  (start-machine machine)
-  (test-eqv (get-register-contents ret) (logior number-tag 2)))
-
-;;; Test cdr: invalid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cdr)
-           (stack-pop)))))
-  (test-error #t (start-machine machine)))
-
-;;; Test set-car!: valid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (assign (reg rax) (reg ret))
-           (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
-           (stack-push (reg rbx))
-           (stack-push (reg rax))
-           (call set-car!)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (stack-push (reg rax))
-           (call car)
-           (stack-pop))))
-       (ret (get-machine-register machine ret)))
-  (start-machine machine)
-  (test-eqv (get-register-contents ret) (logior number-tag 3)))
-
-;;; Test set-car!: invalid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (stack-push (reg rax))
-           (call set-car!)
-           (assign (reg sp) (op +) (reg sp) (const 2))))))
-  (test-error #t (start-machine machine)))
-
-;;; Test set-cdr!: valid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (assign (reg rax) (reg ret))
-           (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
-           (stack-push (reg rbx))
-           (stack-push (reg rax))
-           (call set-cdr!)
-           (assign (reg sp) (op +) (reg sp) (const 2))
-           (stack-push (reg rax))
-           (call cdr)
-           (stack-pop))))
-       (ret (get-machine-register machine ret)))
-  (start-machine machine)
-  (test-eqv (get-register-contents ret) (logior number-tag 3)))
-
-;;; Test set-cdr!: invalid pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (stack-push (reg rax))
-           (call set-cdr!)
-           (assign (reg sp) (op +) (reg sp) (const 2))))))
-  (test-error #t (start-machine machine)))
-
-;;; Test cadr
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (const 2))
            (assign (reg rbx) (const ,empty-list))
            ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (const 1))
-           ,@(call 'cons 'rax 'ret)
-           ,@(call 'cadr 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine ret)) 2))
-
-;;; Test cddr
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (const 2))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (const 1))
-           ,@(call 'cons 'rax 'ret)
-           ,@(call 'cddr 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list))
-
-;;; Test caar: '((1))
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (const 1))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (const ,empty-list))
-           ,@(call 'cons 'ret 'rax)
-           ,@(call 'caar 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine ret)) 1))
-
-;;; Test gc: single preserved pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (stack-pop)
            (assign (reg rax) (reg ret))
-           (call gc)
-           (stack-push (reg rax))
-           (call car)
-           (assign (reg rbx) (reg ret))
-           (call cdr)
-           (stack-pop)
-           (assign (reg rcx) (reg ret)))))
-       (rax (get-machine-register machine rax))
-       (rbx (get-machine-register machine rbx))
-       (rcx (get-machine-register machine rcx)))
-  (start-machine machine)
-  (test-eqv (get-register-contents rax) (logior pair-tag 0))
-  (test-eqv (get-register-contents rbx) (logior number-tag 1))
-  (test-eqv (get-register-contents rcx) (logior number-tag 2)))
-
-;;; Test gc: single unpreserved pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (stack-push (reg rax))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (stack-push (reg rax))
-           (call cons)
-           (stack-pop)
-           (assign (reg ret) (const 0))
-           (call gc))))
-       (memory (get-machine-memory machine)))
-  (start-machine machine)
-  (test-eqv (get-memory memory free-pair-pointer) 0))
-
-;;; Test gc: two references to same pair
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (reg ret))
-           (call gc))))
-       (memory (get-machine-memory machine))
-       (ret (get-machine-register machine ret))
-       (rax (get-machine-register machine rax)))
-  (start-machine machine)
-  (test-eqv (get-memory memory free-pair-pointer) 1)
-  (test-eqv (get-register-contents ret) (logior pair-tag 0))
-  (test-eqv (get-register-contents rax) (logior pair-tag 0)))
-
-;;; Test gc: preserved pair '((1 . 2) . (3 . 4))
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
            ,@(call 'cons 'rax 'rbx)
            (assign (reg rcx) (reg ret))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 3))
-           (assign (reg rbx) (op logior) (const ,number-tag) (const 4))
+           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+           (assign (reg rbx) (const ,empty-list))
            ,@(call 'cons 'rax 'rbx)
-           ,@(call 'cons 'rcx 'ret)
-           (call gc)
-           ,@(call 'car 'ret)
-           ,@(call 'cdr 'ret))))
-       (memory (get-machine-memory machine))
-       (ret (get-machine-register machine ret)))
-  (start-machine machine)
-  (test-eqv (get-memory memory free-pair-pointer) 3)
-  (test-eqv (get-register-contents ret) (logior number-tag 2)))
+           ,@(call 'cons 'ret 'rcx)
+           (stack-pop (reg rcx))
+           (stack-pop (reg rbx))
+           (stack-pop (reg rax))
+           (ret)
 
-;;; Test gc: triggered when out of pairs
-(let* ((machine
-        (make-test-machine
-         `(
-           ;; Create max number of (unreferenced) pairs
-           (assign (reg rax) (const 0))
-           loop
-           (test (op <) (reg rax) (const ,test-max-num-pairs))
-           (jez (label after-loop))
-           ,@(call 'cons 'rax rax)
-           (assign (reg ret) (const 0))
-           (assign (reg rax) (op +) (reg rax) (const 1))
-           (goto (label loop))
-
-           after-loop
-           ;; Create further pair
-           (assign (reg rax) (const ,test-max-num-pairs))
-           ,@(call 'cons 'rax 'rax)
+           start
+           ,@(call 'build-list)
            (assign (reg rax) (reg ret))
-           ,@(call 'car 'rax)
+           ,@(call 'build-list)
            (assign (reg rbx) (reg ret))
-           ,@(call 'cdr 'rax)
-           (assign (reg rcx) (reg ret)))))
-       (memory (get-machine-memory machine))
-       (rbx (get-machine-register machine rbx))
-       (rcx (get-machine-register machine rcx)))
-  (start-machine machine)
-  (test-eqv (get-memory memory free-pair-pointer) 1)
-  (test-eqv (get-register-contents rbx) test-max-num-pairs)
-  (test-eqv (get-register-contents rcx) test-max-num-pairs))
+           ,@(call 'equal? 'rax 'rbx)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+ )
 
-;;; Test gc: fails when out of pairs, even after GC
-(let* ((machine
+(test-group
+ "lib--equal?--failure"
+ ;; Test equal? unsuccessful: (1 2) vs (1 2 3)
+ (let ((machine
         (make-test-machine
-         `(
-           ;; Create max number of pairs
+         `((goto (label start))
+
+           ;; Args:
+           ;; 0 - integer M
+           ;; 1 - integer N
+           ;; Output: the list [M..N)
+           range
+           (stack-push (reg rax))
+           (stack-push (reg rbx))
+           (stack-push (reg rcx))
+           (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
+           (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
+           (test (op >=) (reg rax) (reg rbx))
+           (jne (label range-base-case))
+           (assign (reg rcx) (op +) (reg rax) (const 1))
+           ,@(call 'range 'rcx 'rbx)
+           ,@(call 'cons 'rax 'ret)
+           (goto (label range-end))
+
+           range-base-case
+           (assign (reg ret) (const ,empty-list))
+
+           range-end
+           (stack-pop (reg rcx))
+           (stack-pop (reg rbx))
+           (stack-pop (reg rax))
+           (ret)
+
+           start
            (assign (reg rax) (const 0))
-           loop
-           (test (op <) (reg rax) (const ,test-max-num-pairs))
-           (jez (label after-loop))
-           ,@(call 'cons 'rax rax)
-           (stack-push (reg ret))
-           (assign (reg rax) (op +) (reg rax) (const 1))
-           (goto (label loop))
+           (assign (reg rbx) (const 2))
+           ,@(call 'range 'rax 'rbx)
+           (assign (reg rcx) (reg ret))
+           (assign (reg rbx) (const 3))
+           ,@(call 'range 'rax 'rbx)
+           ,@(call 'equal? 'rcx 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
 
-           after-loop
-           ;; Create further pair
-           (assign (reg rax) (const ,test-max-num-pairs))
-           ,@(call 'cons 'rax 'rax)))))
-  (test-error #t (start-machine machine)))
+(test-group
+ "read--parse-int--success"
+ (for-each
+  (lambda (test-case)
+    (let* ((str
+            (if (string? test-case)
+                test-case
+                (car test-case)))
+           (parsed-number
+            (if (string? test-case)
+                (string->number test-case)
+                (cadr test-case)))
+           (count-chars-read
+            (if (string? test-case)
+                (string-length test-case)
+                (caddr test-case)))
+           (machine
+            (make-test-machine
+             `((assign (reg rax) (const ,test-read-buffer-offset))
+               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+               ,@(call 'parse-int 'rax 'rbx)
+               (assign (reg rax) (reg ret))
+               ,@(call 'car 'rax)
+               (assign (reg rbx) (reg ret))
+               ,@(call 'cdr 'rax))))
+           (memory (get-machine-memory machine)))
+      (reset-machine machine)
+      (write-memory memory
+                    test-read-buffer-offset
+                    (map char->integer (string->list str)))
+      (continue-machine machine)
+      (test-eqv (get-register-contents (get-machine-register machine rbx))
+        (logior parsed-number number-tag))
+      (test-eqv (get-register-contents (get-machine-register machine ret))
+        (+ test-read-buffer-offset count-chars-read))))
+  '("0"
+    "9"
+    "999"
+    "1001"
+    "001111"
+    ("9 " 9 1)
+    ("9)" 9 1))))
 
-;;; Test gc: flips correctly multiple times
-(let* ((machine
-        (make-test-machine
-         `((assign (reg rax) (const 0))
-           (assign (reg rbx) (const ,(1+ (* test-max-num-pairs 2)))) ; Limit
-           loop
-           (test (op <) (reg rax) (reg rbx))
-           (jez (label after-loop))
-           ,@(call 'cons 'rax rax)
-           (assign (reg ret) (const 0))
-           (assign (reg rax) (op +) (reg rax) (const 1))
-           (goto (label loop))
-           after-loop)))
-       (memory (get-machine-memory machine)))
-  (start-machine machine)
-  (test-eqv (get-memory memory free-pair-pointer) 1))
+(test-group
+ "read--parse-int--failure"
+ (for-each
+  (lambda (str)
+    (let* ((machine
+            (make-test-machine
+             `((assign (reg rax) (const ,test-read-buffer-offset))
+               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+               ,@(call 'parse-int 'rax 'rbx)
+               (test (op =) (reg ret) (const ,parse-failed-value))
+               (jne (label end))
+               (error (const -1))
 
-;;; Test equal? successful: '((1) (2))
-(let ((machine
-       (make-test-machine
-        `((goto (label start))
+               end)))
+           (memory (get-machine-memory machine)))
+      (reset-machine machine)
+      (write-memory memory
+                    test-read-buffer-offset
+                    (map char->integer (string->list str)))
+      (continue-machine machine)))
+  '(""
+    "d"
+    "1d"
+    "1."
+    "1'"
+    "1(")))
 
-          build-list
-          (stack-push (reg rax))
-          (stack-push (reg rbx))
-          (stack-push (reg rcx))
-          (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-          (assign (reg rbx) (const ,empty-list))
-          ,@(call 'cons 'rax 'rbx)
-          (assign (reg rax) (reg ret))
-          ,@(call 'cons 'rax 'rbx)
-          (assign (reg rcx) (reg ret))
-          (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-          (assign (reg rbx) (const ,empty-list))
-          ,@(call 'cons 'rax 'rbx)
-          ,@(call 'cons 'ret 'rcx)
-          (stack-pop (reg rcx))
-          (stack-pop (reg rbx))
-          (stack-pop (reg rax))
-          (ret)
+(test-group
+ "read--parse-int--bounds-checking"
+ (for-each
+  (lambda (test-case)
+    (let* ((str (car test-case))
+           (bound (cadr test-case))
+           (parsed-number (caddr test-case))
+           (machine
+            (make-test-machine
+             `((assign (reg rax) (const ,test-read-buffer-offset))
+               (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
+               ,@(call 'parse-int 'rax 'rbx)
+               (assign (reg rax) (reg ret))
+               ,@(call 'car 'rax)
+               (assign (reg rbx) (reg ret))
+               ,@(call 'cdr 'rax))))
+           (memory (get-machine-memory machine)))
+      (reset-machine machine)
+      (write-memory memory
+                    test-read-buffer-offset
+                    (map char->integer (string->list str)))
+      (continue-machine machine)
+      (test-eqv (get-register-contents (get-machine-register machine rbx))
+        (logior parsed-number number-tag))
+      (test-eqv (get-register-contents (get-machine-register machine ret))
+        (+ test-read-buffer-offset bound))))
+  '(("99" 1 9)
+    ("999" 2 99)
+    ("99d" 2 99))))
 
-          start
-          ,@(call 'build-list)
-          (assign (reg rax) (reg ret))
-          ,@(call 'build-list)
-          (assign (reg rbx) (reg ret))
-          ,@(call 'equal? 'rax 'rbx)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+(test-group
+ "read--parse-list--empty-list"
+ (let* ((exp (string->list (format #f "~a" '())))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; The parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rcx) (reg ret)))))) ; Index after parsing
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rbx)) empty-list)
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (+ test-read-buffer-offset (length exp)))))
 
-;;; Test equal? unsuccessful: (1 2) vs (1 2 3)
-(let ((machine
-       (make-test-machine
-        `((goto (label start))
+(test-group
+ "read--parse-list--simple-list"
+ ;; Test parse-list: '(1 2)
+ (let* ((l '(1 2))
+        (exp (string->list (format #f "~a" l)))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Index after parsing
+                    ,@(call 'car 'rbx)
+                    (assign (reg rcx) (reg ret)) ; CAR of list
+                    ,@(call 'cadr 'rbx)
+                    (assign (reg rdx) (reg ret)) ; CADR of list
+                    ,@(call 'cddr 'rbx)))))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (logior number-tag (car l)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx))
+     (logior number-tag (cadr l)))
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     empty-list)))
 
-          ;; Args:
-          ;; 0 - integer M
-          ;; 1 - integer N
-          ;; Output: the list [M..N)
-          range
-          (stack-push (reg rax))
-          (stack-push (reg rbx))
-          (stack-push (reg rcx))
-          (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
-          (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
-          (test (op >=) (reg rax) (reg rbx))
-          (jne (label range-base-case))
-          (assign (reg rcx) (op +) (reg rax) (const 1))
-          ,@(call 'range 'rcx 'rbx)
-          ,@(call 'cons 'rax 'ret)
-          (goto (label range-end))
+(test-group
+ "read--parse-list--nested-lists"
+ ;; Test parse-list: '((1) (2))
+ (let* ((l '((1) (2)))
+        (exp (string->list (format #f "~a" l)))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Index after parsing
+                    ,@(call 'caar 'rbx)
+                    (assign (reg rcx) (reg ret)) ; CAAR of list
+                    ,@(call 'caadr 'rbx)
+                    (assign (reg rdx) (reg ret)) ; CAADR of list
+                    ,@(call 'cddr 'rbx)))))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (logior number-tag (caar l)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx))
+     (logior number-tag (caadr l)))
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     empty-list)))
 
-          range-base-case
-          (assign (reg ret) (const ,empty-list))
+(test-group
+ "read--parse-list--whitespace"
+ ;; Test parse-list: '( ( 1) ( 2  )   )
+ (let* ((exp (string->list (format #f "~a" "( ( 1) ( 2  )   )")))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Index after parsing
+                    ,@(call 'caar 'rbx)
+                    (assign (reg rcx) (reg ret)) ; CAAR of list
+                    ,@(call 'caadr 'rbx)
+                    (assign (reg rdx) (reg ret)) ; CAADR of list
+                    ,@(call 'cddr 'rbx)))))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (logior number-tag 1))
+   (test-eqv (get-register-contents (get-machine-register machine rdx))
+     (logior number-tag 2))
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     empty-list)))
 
-          range-end
-          (stack-pop (reg rcx))
-          (stack-pop (reg rbx))
-          (stack-pop (reg rax))
-          (ret)
+(test-group
+ "read--parse-list--cons-cell"
+ ;; Test parse-list: (1 . 2)
+ (let* ((l '(1 . 2))
+        (exp (string->list (format #f "~a" l)))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Index after parsing
+                    ,@(call 'car 'rbx)
+                    (assign (reg rcx) (reg ret)) ; CAR of list
+                    ,@(call 'cdr 'rbx)
+                    (assign (reg rdx) (reg ret)))))) ; CDR of list
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (logior number-tag (car l)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx))
+     (logior number-tag (cdr l)))))
 
-          start
-          (assign (reg rax) (const 0))
-          (assign (reg rbx) (const 2))
-          ,@(call 'range 'rax 'rbx)
-          (assign (reg rcx) (reg ret))
-          (assign (reg rbx) (const 3))
-          ,@(call 'range 'rax 'rbx)
-          ,@(call 'equal? 'rcx 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0))
+(test-group
+ "read--parse-list--improper-list"
+ ;; Test parse-list: (1 2 . 3)
+ (let* ((l '(1 2 . 3))
+        (exp (string->list (format #f "~a" l)))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Index after parsing
+                    ,@(call 'car 'rbx)
+                    (assign (reg rcx) (reg ret)) ; CAR of list
+                    ,@(call 'cadr 'rbx)
+                    (assign (reg rdx) (reg ret)) ; CADR of list
+                    ,@(call 'cddr 'rbx)))))      ; CDDR of list
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rcx))
+     (logior number-tag (car l)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx))
+     (logior number-tag (cadr l)))
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     (logior number-tag (cddr l)))))
 
-;;; Test parse-int: success cases
-(for-each
-   (lambda (test-case)
-     (let* ((str
-             (if (string? test-case)
-                 test-case
-                 (car test-case)))
-            (parsed-number
-             (if (string? test-case)
-                 (string->number test-case)
-                 (cadr test-case)))
-            (count-chars-read
-             (if (string? test-case)
-                 (string-length test-case)
-                 (caddr test-case)))
-            (machine
-             (make-test-machine
-              `((assign (reg rax) (const ,test-read-buffer-offset))
-                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-                ,@(call 'parse-int 'rax 'rbx)
-                (assign (reg rax) (reg ret))
-                ,@(call 'car 'rax)
-                (assign (reg rbx) (reg ret))
-                ,@(call 'cdr 'rax))))
-            (memory (get-machine-memory machine)))
-       (reset-machine machine)
-       (write-memory memory
-                     test-read-buffer-offset
-                     (map char->integer (string->list str)))
-       (continue-machine machine)
-       (test-eqv (get-register-contents (get-machine-register machine rbx))
-         (logior parsed-number number-tag))
-       (test-eqv (get-register-contents (get-machine-register machine ret))
-         (+ test-read-buffer-offset count-chars-read))))
-   '("0"
-     "9"
-     "999"
-     "1001"
-     "001111"
-     ("9 " 9 1)
-     ("9)" 9 1)))
+(test-group
+ "read--parse-list--improper-pair-no-car"
+ ;; Test parse-list: (. 1)
+ ;;
+ ;; (. 1) parses as 1.
+ (let* ((exp (string->list "(. 1)"))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,test-read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                    ,@(call 'parse-list 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Parsed value
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)))))) ; Index after parsing
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 test-read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax))
+     (+ test-read-buffer-offset (length exp)))
+   (test-eqv (get-register-contents (get-machine-register machine rbx))
+     (logior number-tag 1))))
 
-;;; Test parse-int: failure cases
-(for-each
-   (lambda (str)
-     (let* ((machine
-             (make-test-machine
-              `((assign (reg rax) (const ,test-read-buffer-offset))
-                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-                ,@(call 'parse-int 'rax 'rbx)
-                (test (op =) (reg ret) (const ,parse-failed-value))
-                (jne (label end))
-                (error (const -1))
+(test-group
+ "read--parse-list--failures"
+ (for-each
+  (lambda (test-case)
+    (let* ((exp (string->list (format #f "~a" test-case)))
+           (machine (make-test-machine
+                     `((assign (reg rax) (const ,test-read-buffer-offset))
+                       (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                       ,@(call 'parse-list 'rax 'rbx)
+                       (assign (reg rax) (reg ret))))))
+      (reset-machine machine)
+      (write-memory (get-machine-memory machine)
+                    test-read-buffer-offset
+                    (map char->integer exp))
+      (continue-machine machine)
+      (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value)))
+  '("(1"
+    "((1)"
+    ")"
+    ""
+    "(1 .)"
+    "(1 . 2")))
 
-                end)))
-            (memory (get-machine-memory machine)))
-       (reset-machine machine)
-       (write-memory memory
-                     test-read-buffer-offset
-                     (map char->integer (string->list str)))
-       (continue-machine machine)))
-   '(""
-     "d"
-     "1d"
-     "1."
-     "1'"
-     "1("))
+(test-group
+ "read--parse-symbol--success"
+ (for-each
+  (lambda (test-case)
+    (let* ((test-case-str
+            (if (pair? test-case)
+                (car test-case)
+                test-case))
+           (test-case-parsed-count
+            (if (pair? test-case)
+                (cadr test-case)
+                (string-length test-case)))
+           (exp (string->list test-case-str))
+           (machine (make-test-machine
+                     `((assign (reg rax) (const ,test-read-buffer-offset))
+                       (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                       ,@(call 'parse-symbol 'rax 'rbx)
+                       (assign (reg rax) (reg ret))
+                       ,@(call 'car 'rax)
+                       (assign (reg rbx) (reg ret))
+                       ,@(call 'cdr 'rax)
+                       (assign (reg rax) (reg ret))))))
+      (reset-machine machine)
+      (write-memory (get-machine-memory machine)
+                    test-read-buffer-offset
+                    (map char->integer exp))
+      (continue-machine machine)
+      (test-eqv (get-register-contents (get-machine-register machine rax))
+        (+ test-read-buffer-offset test-case-parsed-count))
+      (test-eqv (logand tag-mask
+                        (get-register-contents (get-machine-register machine rbx)))
+        symbol-tag)))
+  '("a"
+    "a0"
+    "a-0"
+    ("a0)" 2)
+    ("a0 " 2))))
 
-;;; Test parse-int: bounds checking
-(for-each
- (lambda (test-case)
-   (let* ((str (car test-case))
-          (bound (cadr test-case))
-          (parsed-number (caddr test-case))
-          (machine
-           (make-test-machine
-            `((assign (reg rax) (const ,test-read-buffer-offset))
-                (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
-                ,@(call 'parse-int 'rax 'rbx)
-                (assign (reg rax) (reg ret))
-                ,@(call 'car 'rax)
-                (assign (reg rbx) (reg ret))
-                ,@(call 'cdr 'rax))))
-          (memory (get-machine-memory machine)))
-     (reset-machine machine)
-     (write-memory memory
-                   test-read-buffer-offset
-                   (map char->integer (string->list str)))
-     (continue-machine machine)
-     (test-eqv (get-register-contents (get-machine-register machine rbx))
-         (logior parsed-number number-tag))
-       (test-eqv (get-register-contents (get-machine-register machine ret))
-         (+ test-read-buffer-offset bound))))
- '(("99" 1 9)
-   ("999" 2 99)
-   ("99d" 2 99)))
+(test-group
+ "read--parse-symbol--failures"
+ (for-each
+  (lambda (test-case-str)
+    (let* ((exp (string->list test-case-str))
+           (machine (make-test-machine
+                     `((assign (reg rax) (const ,test-read-buffer-offset))
+                       (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                       ,@(call 'parse-symbol 'rax 'rbx)
+                       (assign (reg rax) (reg ret))))))
+      (reset-machine machine)
+      (write-memory (get-machine-memory machine)
+                    test-read-buffer-offset
+                    (map char->integer exp))
+      (continue-machine machine)
+      (test-eqv (get-register-contents (get-machine-register machine rax))
+        parse-failed-value)))
+  '("" "8" "8a")))
 
-;;; Test parse-list: '()
-(let* ((exp (string->list (format #f "~a" '())))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; The parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rcx) (reg ret)))))) ; Index after parsing
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx)) empty-list)
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (+ test-read-buffer-offset (length exp))))
+(test-group
+ "read--parse-exp--symbol-list"
+ ;; Test parse-exp: '(a b c)
+ (let* ((max-num-pairs 128)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (exp (string->list (format #f "~a" '(a b c))))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                    ,@(call 'parse-exp 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rax) (reg ret)) ; Parsed value
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret))
+                    ,@(call 'cadr 'rax)
+                    (assign (reg rcx) (reg ret))
+                    ,@(call 'caddr 'rax)
+                    (assign (reg rdx) (reg ret)))
+                  #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
+         (rcx-value (get-register-contents (get-machine-register machine rcx)))
+         (rdx-value (get-register-contents (get-machine-register machine rdx))))
+     (test-eqv (logand tag-mask rbx-value) symbol-tag)
+     (test-eqv (logand tag-mask rcx-value) symbol-tag)
+     (test-eqv (logand tag-mask rdx-value) symbol-tag)
+     (test-assert (not (= rbx-value rcx-value)))
+     (test-assert (not (= rbx-value rdx-value)))
+     (test-assert (not (= rcx-value rdx-value))))))
 
-;;; Test parse-list: '(1 2)
-(let* ((l '(1 2))
-       (exp (string->list (format #f "~a" l)))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Index after parsing
-                   ,@(call 'car 'rbx)
-                   (assign (reg rcx) (reg ret)) ; CAR of list
-                   ,@(call 'cadr 'rbx)
-                   (assign (reg rdx) (reg ret)) ; CADR of list
-                   ,@(call 'cddr 'rbx)))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag (car l)))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag (cadr l)))
-  (test-eqv (get-register-contents (get-machine-register machine ret))
-    empty-list))
+(test-group
+ "read--parse-exp--duplicate-symbol-list"
+ ;; Test parse-exp: '(a b a)
+ (let* ((max-num-pairs 128)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (exp (string->list (format #f "~a" '(a b a))))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                    ,@(call 'parse-exp 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rax) (reg ret)) ; Parsed value
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret))
+                    ,@(call 'cadr 'rax)
+                    (assign (reg rcx) (reg ret))
+                    ,@(call 'caddr 'rax)
+                    (assign (reg rdx) (reg ret)))
+                  #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
+         (rcx-value (get-register-contents (get-machine-register machine rcx)))
+         (rdx-value (get-register-contents (get-machine-register machine rdx))))
+     (test-eqv (logand tag-mask rbx-value) symbol-tag)
+     (test-eqv (logand tag-mask rcx-value) symbol-tag)
+     (test-eqv (logand tag-mask rdx-value) symbol-tag)
+     (test-assert (not (= rbx-value rcx-value)))
+     (test-assert (not (= rcx-value rdx-value)))
+     (test-eqv rbx-value rdx-value))))
 
-;;; Test parse-list: '((1) (2))
-(let* ((l '((1) (2)))
-       (exp (string->list (format #f "~a" l)))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Index after parsing
-                   ,@(call 'caar 'rbx)
-                   (assign (reg rcx) (reg ret)) ; CAAR of list
-                   ,@(call 'caadr 'rbx)
-                   (assign (reg rdx) (reg ret)) ; CAADR of list
-                   ,@(call 'cddr 'rbx)))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag (caar l)))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag (caadr l)))
-  (test-eqv (get-register-contents (get-machine-register machine ret))
-    empty-list))
+(test-group
+ "read--parse-exp--distinct-symbol-list"
+ ;; Test parse-exp: '(a aa)
+ (let* ((max-num-pairs 128)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (exp (string->list (format #f "~a" '(a b a))))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                    ,@(call 'parse-exp 'rax 'rbx)
+                    (assign (reg rax) (reg ret))
+                    ,@(call 'car 'rax)
+                    (assign (reg rax) (reg ret)) ; Parsed value
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret))
+                    ,@(call 'cadr 'rax)
+                    (assign (reg rcx) (reg ret)))
+                  #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
+         (rcx-value (get-register-contents (get-machine-register machine rcx))))
+     (test-eqv (logand tag-mask rbx-value) symbol-tag)
+     (test-eqv (logand tag-mask rcx-value) symbol-tag)
+     (test-assert (not (= rbx-value rcx-value))))))
 
-;;; Test parse-list: '( ( 1) ( 2  )   )
-(let* ((exp (string->list (format #f "~a" "( ( 1) ( 2  )   )")))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Index after parsing
-                   ,@(call 'caar 'rbx)
-                   (assign (reg rcx) (reg ret)) ; CAAR of list
-                   ,@(call 'caadr 'rbx)
-                   (assign (reg rdx) (reg ret)) ; CAADR of list
-                   ,@(call 'cddr 'rbx)))))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag 1))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag 2))
-  (test-eqv (get-register-contents (get-machine-register machine ret))
-    empty-list))
-
-;;; Test parse-list: (1 . 2)
-(let* ((l '(1 . 2))
-       (exp (string->list (format #f "~a" l)))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Index after parsing
-                   ,@(call 'car 'rbx)
-                   (assign (reg rcx) (reg ret)) ; CAR of list
-                   ,@(call 'cdr 'rbx)
-                   (assign (reg rdx) (reg ret)))))) ; CDR of list
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag (car l)))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag (cdr l))))
-
-;;; Test parse-list: (1 2 . 3)
-(let* ((l '(1 2 . 3))
-       (exp (string->list (format #f "~a" l)))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Index after parsing
-                   ,@(call 'car 'rbx)
-                   (assign (reg rcx) (reg ret)) ; CAR of list
-                   ,@(call 'cadr 'rbx)
-                   (assign (reg rdx) (reg ret)) ; CADR of list
-                   ,@(call 'cddr 'rbx))))) ; CDDR of list
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rcx))
-    (logior number-tag (car l)))
-  (test-eqv (get-register-contents (get-machine-register machine rdx))
-    (logior number-tag (cadr l)))
-  (test-eqv (get-register-contents (get-machine-register machine ret))
-    (logior number-tag (cddr l))))
-
-;;; Test parse-list: (. 1)
-;;;
-;;; (. 1) parses as 1.
-(let* ((exp (string->list "(. 1)"))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,test-read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                   ,@(call 'parse-list 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Parsed value
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)))))) ; Index after parsing
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                test-read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax))
-    (+ test-read-buffer-offset (length exp)))
-  (test-eqv (get-register-contents (get-machine-register machine rbx))
-    (logior number-tag 1)))
-
-;;; Test parse-list failures
-(for-each
- (lambda (test-case)
-   (let* ((exp (string->list (format #f "~a" test-case)))
-          (machine (make-test-machine
-                    `((assign (reg rax) (const ,test-read-buffer-offset))
-                      (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                      ,@(call 'parse-list 'rax 'rbx)
-                      (assign (reg rax) (reg ret))))))
-     (reset-machine machine)
-     (write-memory (get-machine-memory machine)
-                   test-read-buffer-offset
-                   (map char->integer exp))
-     (continue-machine machine)
-     (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value)))
- '("(1"
-   "((1)"
-   ")"
-   ""
-   "(1 .)"
-   "(1 . 2"))
-
-;;; Test parse-symbol success cases
-(for-each
- (lambda (test-case)
-   (let* ((test-case-str
-           (if (pair? test-case)
-               (car test-case)
-               test-case))
-          (test-case-parsed-count
-           (if (pair? test-case)
-               (cadr test-case)
-               (string-length test-case)))
-          (exp (string->list test-case-str))
-          (machine (make-test-machine
-                    `((assign (reg rax) (const ,test-read-buffer-offset))
-                      (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                      ,@(call 'parse-symbol 'rax 'rbx)
-                      (assign (reg rax) (reg ret))
-                      ,@(call 'car 'rax)
-                      (assign (reg rbx) (reg ret))
-                      ,@(call 'cdr 'rax)
-                      (assign (reg rax) (reg ret))))))
-     (reset-machine machine)
-     (write-memory (get-machine-memory machine)
-                   test-read-buffer-offset
-                   (map char->integer exp))
-     (continue-machine machine)
-     (test-eqv (get-register-contents (get-machine-register machine rax))
-       (+ test-read-buffer-offset test-case-parsed-count))
-     (test-eqv (logand tag-mask
-                       (get-register-contents (get-machine-register machine rbx)))
-       symbol-tag)))
- '("a"
-   "a0"
-   "a-0"
-   ("a0)" 2)
-   ("a0 " 2)))
-
-;;; Test parse-symbol failure
-(for-each
- (lambda (test-case-str)
-   (let* ((exp (string->list test-case-str))
-          (machine (make-test-machine
-                    `((assign (reg rax) (const ,test-read-buffer-offset))
-                      (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                      ,@(call 'parse-symbol 'rax 'rbx)
-                      (assign (reg rax) (reg ret))))))
-     (reset-machine machine)
-     (write-memory (get-machine-memory machine)
-                   test-read-buffer-offset
-                   (map char->integer exp))
-     (continue-machine machine)
-     (test-eqv (get-register-contents (get-machine-register machine rax))
-       parse-failed-value)))
- '("" "8" "8a"))
-
-;;; Test parse-exp: '(a b c)
-(let* ((max-num-pairs 128)
-       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-       (exp (string->list (format #f "~a" '(a b c))))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
-                   ,@(call 'parse-exp 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret)) ; Parsed value
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret))
-                   ,@(call 'cadr 'rax)
-                   (assign (reg rcx) (reg ret))
-                   ,@(call 'caddr 'rax)
-                   (assign (reg rdx) (reg ret)))
-                 #:max-num-pairs max-num-pairs)))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
-        (rcx-value (get-register-contents (get-machine-register machine rcx)))
-        (rdx-value (get-register-contents (get-machine-register machine rdx))))
-    (test-eqv (logand tag-mask rbx-value) symbol-tag)
-    (test-eqv (logand tag-mask rcx-value) symbol-tag)
-    (test-eqv (logand tag-mask rdx-value) symbol-tag)
-    (test-assert (not (= rbx-value rcx-value)))
-    (test-assert (not (= rbx-value rdx-value)))
-    (test-assert (not (= rcx-value rdx-value)))))
-
-;;; Test parse-exp: '(a b a)
-(let* ((max-num-pairs 128)
-       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-       (exp (string->list (format #f "~a" '(a b a))))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
-                   ,@(call 'parse-exp 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret)) ; Parsed value
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret))
-                   ,@(call 'cadr 'rax)
-                   (assign (reg rcx) (reg ret))
-                   ,@(call 'caddr 'rax)
-                   (assign (reg rdx) (reg ret)))
-                 #:max-num-pairs max-num-pairs)))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
-        (rcx-value (get-register-contents (get-machine-register machine rcx)))
-        (rdx-value (get-register-contents (get-machine-register machine rdx))))
-    (test-eqv (logand tag-mask rbx-value) symbol-tag)
-    (test-eqv (logand tag-mask rcx-value) symbol-tag)
-    (test-eqv (logand tag-mask rdx-value) symbol-tag)
-    (test-assert (not (= rbx-value rcx-value)))
-    (test-assert (not (= rcx-value rdx-value)))
-    (test-eqv rbx-value rdx-value)))
-
-;;; Test parse-exp: '(a aa)
-(let* ((max-num-pairs 128)
-       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-       (exp (string->list (format #f "~a" '(a b a))))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
-                   ,@(call 'parse-exp 'rax 'rbx)
-                   (assign (reg rax) (reg ret))
-                   ,@(call 'car 'rax)
-                   (assign (reg rax) (reg ret)) ; Parsed value
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret))
-                   ,@(call 'cadr 'rax)
-                   (assign (reg rcx) (reg ret)))
-                 #:max-num-pairs max-num-pairs)))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (let ((rbx-value (get-register-contents (get-machine-register machine rbx)))
-        (rcx-value (get-register-contents (get-machine-register machine rcx))))
-    (test-eqv (logand tag-mask rbx-value) symbol-tag)
-    (test-eqv (logand tag-mask rcx-value) symbol-tag)
-    (test-assert (not (= rbx-value rcx-value)))))
-
-;;; Test symbols are preserved after garbage collection
-;;;
-;;; Parse a symbol, trigger GC and check that the symbol list has the
-;;; correct structure.
-(let* ((max-num-pairs 128)
-       (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-       (test-char #\a)
-       (exp (list test-char))
-       (machine (make-test-machine
-                 `((assign (reg rax) (const ,read-buffer-offset))
-                   (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
-                   ,@(call 'parse-exp 'rax 'rbx)
-                   (call gc)
-                   (mem-load (reg rax) (const ,symbol-list))
-                   ,@(call 'car 'rax)
-                   (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
-                   ,@(call 'cdr 'rax)
-                   (assign (reg rax) (reg ret)) ; Remainder of SYMBOL-LIST
-                   ,@(call 'car 'rbx)
-                   (assign (reg rcx) (reg ret)) ; First character in symbol
-                   ,@(call 'cdr 'rbx)
-                   (assign (reg rdx) (reg ret))) ; Remainder of character list
-                 #:max-num-pairs max-num-pairs)))
-  (reset-machine machine)
-  (write-memory (get-machine-memory machine)
-                read-buffer-offset
-                (map char->integer exp))
-  (continue-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
-  (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
-  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
+(test-group
+ "gc--symbol-list-preserved"
+ ;; Test symbols are preserved after garbage collection
+ ;;
+ ;; Parse a symbol, trigger GC and check that the symbol list has the
+ ;; correct structure.
+ (let* ((max-num-pairs 128)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (test-char #\a)
+        (exp (list test-char))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                    ,@(call 'parse-exp 'rax 'rbx)
+                    (call gc)
+                    (mem-load (reg rax) (const ,symbol-list))
+                    ,@(call 'car 'rax)
+                    (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
+                    ,@(call 'cdr 'rax)
+                    (assign (reg rax) (reg ret)) ; Remainder of SYMBOL-LIST
+                    ,@(call 'car 'rbx)
+                    (assign (reg rcx) (reg ret)) ; First character in symbol
+                    ,@(call 'cdr 'rbx)
+                    (assign (reg rdx) (reg ret))) ; Remainder of character list
+                  #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
+   (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)))
 
 ;;; Environment testing
 
-;;; Test assoc 0 '()
-(let ((machine
-       (make-test-machine
-        `((assign (reg rax) (const 0))
-          (assign (reg rbx) (const ,empty-list))
-          ,@(call 'assoc 'rax 'rbx)
-          ,@(call 'is-error 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
+(test-group
+ "lib--assoc--failure"
+ ;; Test assoc 0 '()
+ (let ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 0))
+           (assign (reg rbx) (const ,empty-list))
+           ,@(call 'assoc 'rax 'rbx)
+           ,@(call 'is-error 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
-;;; Test assoc 0 '((1 . 0) (0 . 1))
-(let ((machine
-       (make-test-machine
-        `((assign (reg rax) (const 0))
-          (assign (reg rbx) (const 1))
-          (assign (reg rcx) (const ,empty-list))
-          ,@(call 'acons 'rax 'rbx 'rcx)
-          (assign (reg rax) (const 1))
-          (assign (reg rbx) (const 0))
-          ,@(call 'acons 'rax 'rbx 'ret)
-          (assign (reg rax) (const 0))
-          ,@(call 'assoc 'rax 'ret)
-          ,@(call 'cdr 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine ret)) 1))
+(test-group
+ "lib--assoc--success"
+ ;; Test assoc 0 '((1 . 0) (0 . 1))
+ (let ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 0))
+           (assign (reg rbx) (const 1))
+           (assign (reg rcx) (const ,empty-list))
+           ,@(call 'acons 'rax 'rbx 'rcx)
+           (assign (reg rax) (const 1))
+           (assign (reg rbx) (const 0))
+           ,@(call 'acons 'rax 'rbx 'ret)
+           (assign (reg rax) (const 0))
+           ,@(call 'assoc 'rax 'ret)
+           ,@(call 'cdr 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 1)))
 
-;;; Test assoc 0 '((0 . 2) (0 . 1))
-;;;
-;;; Ensure ASSOC returns first occurrence of key in alist
-(let ((machine
-       (make-test-machine
-        `((assign (reg rax) (const 0))
-          (assign (reg rbx) (const 1))
-          (assign (reg rcx) (const ,empty-list))
-          ,@(call 'acons 'rax 'rbx 'rcx)
-          (assign (reg rax) (const 0))
-          (assign (reg rbx) (const 2))
-          ,@(call 'acons 'rax 'rbx 'ret)
-          (assign (reg rax) (const 0))
-          ,@(call 'assoc 'rax 'ret)
-          ,@(call 'cdr 'ret)))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine ret)) 2))
+(test-group
+ "lib--assoc--duplicate-keys"
+ ;; Test assoc 0 '((0 . 2) (0 . 1))
+ ;;
+ ;; Ensure ASSOC returns first occurrence of key in alist
+ (let ((machine
+        (make-test-machine
+         `((assign (reg rax) (const 0))
+           (assign (reg rbx) (const 1))
+           (assign (reg rcx) (const ,empty-list))
+           ,@(call 'acons 'rax 'rbx 'rcx)
+           (assign (reg rax) (const 0))
+           (assign (reg rbx) (const 2))
+           ,@(call 'acons 'rax 'rbx 'ret)
+           (assign (reg rax) (const 0))
+           ,@(call 'assoc 'rax 'ret)
+           ,@(call 'cdr 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
 
-;;; Test list 0 1 2
-(let ((machine
-       (make-test-machine
-        `(,@(call 'list 2 0 1)
-          (assign (reg rax) (reg ret))
-          ,@(call 'car 'rax)
-          (assign (reg rbx) (reg ret))
-          ,@(call 'cadr 'rax)
-          (assign (reg rcx) (reg ret))
-          ,@(call 'cddr 'rax)
-          (assign (reg rdx) (reg ret))))))
-  (start-machine machine)
-  (test-eqv (get-register-contents (get-machine-register machine rbx)) 0)
-  (test-eqv (get-register-contents (get-machine-register machine rcx)) 1)
-  (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list))
+(test-group
+ "lib--list"
+ ;; Test list 0 1 2
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list 2 0 1)
+           (assign (reg rax) (reg ret))
+           ,@(call 'car 'rax)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'cadr 'rax)
+           (assign (reg rcx) (reg ret))
+           ,@(call 'cddr 'rax)
+           (assign (reg rdx) (reg ret))))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rbx)) 0)
+   (test-eqv (get-register-contents (get-machine-register machine rcx)) 1)
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)))
 
-(test-end "asm-interpreter-test")
+(test-group
+ "env--lookup-in-env--empty-env"
+ ;; Test lookup-in-env 0 '()
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'lookup-in-env 0 empty-list)
+           ,@(call 'is-error 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
