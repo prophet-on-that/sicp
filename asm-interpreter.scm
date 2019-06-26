@@ -1051,7 +1051,7 @@ array."
     ;; 0 - symbol
     ;; 1 - frame
     ;; Output: mapped value, or an error if not found.
-    lookup-var-in-frame
+    lookup-in-frame
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
@@ -1060,10 +1060,10 @@ array."
     ,@(call 'assoc 'rax 'ret)
     (assign (reg rax) (reg ret))
     ,@(call 'is-error? 'rax)
-    (jne (label lookup-var-in-frame-error))
+    (jne (label lookup-in-frame-error))
     (goto (label cdr-entry))            ; TCO
 
-    lookup-var-in-frame-error
+    lookup-in-frame-error
     (assign (reg ret) (reg rax))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
@@ -1141,7 +1141,7 @@ array."
     (test (op =) (reg rbx) (const ,empty-list))
     (jne (label lookup-in-env-not-found))
     ,@(call 'car 'rbx)
-    ,@(call 'lookup-var-in-frame 'rax 'ret)
+    ,@(call 'lookup-in-frame 'rax 'ret)
     (assign (reg rcx) (reg ret))
     ,@(call 'is-error? 'rcx)
     (jez (label lookup-in-env-found))
