@@ -91,7 +91,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define predefined-symbols
   '("#f"
     "#t"
-    "error:assoc:not-found"))
+    "error:assoc:not-found"
+    "error:unbound-variable"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1032,6 +1033,136 @@ array."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Output: a new, empty frame
+    ;;
+    ;; A frame is a list consisting of a single element, an alist
+    ;; mapping symbols to values.
+    get-new-frame
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (assign (reg rax) (const ,empty-list))
+    (assign (reg rbx) (const ,empty-list))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (goto (label cons-entry))           ; TCO
+
+    ;; Args:
+    ;; 0 - symbol
+    ;; 1 - frame
+    ;; Output: mapped value, or an error if not found.
+    lookup-var-in-frame
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ,@(call 'car 'rbx)
+    ,@(call 'assoc 'rax 'ret)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error 'rax)
+    (jne (label lookup-var-in-frame-error))
+    (goto (label cdr-entry))            ; TCO
+
+    lookup-var-in-frame-error
+    (assign (reg ret) (reg rax))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Modify frame in-place by adding new binding.
+    ;; Args:
+    ;; 0 - symbol
+    ;; 1 - value
+    ;; 2 - frame
+    add-frame-binding!
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; Arg 2
+    ,@(call 'car 'rcx)                  ; binding alist of frame
+    ,@(call 'acons 'rax 'rbx 'rcx)
+    ,@(call 'set-car! 'rcx 'ret)
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - list of symbols
+    ;; 1 - list of symbol values
+    ;; 2 - existing environment
+    ;; Output: new environment extended with new frame including given
+    ;; bindings.
+    extend-env
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (call get-new-frame)
+    (assign (reg rcx) (reg ret))        ; New frame
+
+    extend-env-test
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label extend-env-continue))
+    (test (op =) (reg rbx) (const ,empty-list))
+    (jne (label extend-env-continue))
+    ,@(call 'car 'rax)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'car 'rbx)
+    ,@(call 'add-frame-binding! 'rdx 'ret 'rcx)
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label extend-env-test))
+
+    extend-env-continue
+    (assign (reg rax) (reg rcx))
+    (mem-load (reg rbx) (op +) (reg bp) (const 4)) ; Arg 2
+    (goto (label cons-entry))           ; TCO
+
+    ;; Args:
+    ;; 0 - symbol to lookup
+    ;; 1 - environment
+    ;; Output: the value bound to the given symbol, or an error if not
+    ;; found.
+    lookup-in-env
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    lookup-in-env-test
+    (test (op =) (reg rbx) (const ,empty-list))
+    (jne (label lookup-in-env-not-found))
+    ,@(call 'car 'rbx)
+    ,@(call 'lookup-var-in-frame 'rax 'ret)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'is-error 'rcx)
+    (jez (label lookup-in-env-found))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label lookup-in-env-test))
+
+    lookup-in-env-found
+    (assign (reg ret) (reg rcx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    lookup-in-env-not-found
+    (assign (reg rax) (const ,(get-predefined-symbol-value "error:unbound-variable")))
+    (assign (reg rbx) (const ,empty-list))
+    ,@(call 'cons 'rax 'rbx)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     _start))
 
@@ -2171,3 +2302,17 @@ array."
            ,@(call 'is-error 'ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "env--lookup-in-env--single-frame"
+ ;; Test lookup-in-env 0 '(((1 . 3) (0 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list 2 1 0)
+           (assign (reg rax) (reg ret))
+           ,@(call 'list 2 3 2)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           ,@(call 'lookup-in-env 0 'ret))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
