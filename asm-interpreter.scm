@@ -2316,3 +2316,41 @@ array."
          #:max-num-pairs 1024)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
+
+(test-group
+ "env--lookup-in-env--multiple-frames"
+ ;; Test lookup-in-env 0 '(((1 . 3)) ((0 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons 0 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 2 empty-list)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'cons 1 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 3 empty-list)
+           ,@(call 'extend-env 'rax 'ret 'rbx)
+           ,@(call 'lookup-in-env 0 'ret))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
+
+(test-group
+ "env--lookup-in-env--shadowed-binding"
+ ;; Test lookup-in-env 0 '(((0 . 3)) ((0 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons 0 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 2 empty-list)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'cons 0 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 3 empty-list)
+           ,@(call 'extend-env 'rax 'ret 'rbx)
+           ,@(call 'lookup-in-env 0 'ret))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 3)))
