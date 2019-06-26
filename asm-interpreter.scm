@@ -935,16 +935,16 @@ array."
 
     ;; Args:
     ;; 0 - object to test
-    is-error
+    is-error?
     (stack-push (reg rax))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     ,@(call 'pair? 'rax)
-    (jez (label is-error-end))
+    (jez (label is-error?-end))
     ,@(call 'car 'rax)
     (test (op =) (reg ret) (const ,error-magic-value))
-    (goto (label is-error-end))
+    (goto (label is-error?-end))
 
-    is-error-end
+    is-error?-end
     (stack-pop (reg rax))
     (ret)
 
@@ -1059,7 +1059,7 @@ array."
     ,@(call 'car 'rbx)
     ,@(call 'assoc 'rax 'ret)
     (assign (reg rax) (reg ret))
-    ,@(call 'is-error 'rax)
+    ,@(call 'is-error? 'rax)
     (jne (label lookup-var-in-frame-error))
     (goto (label cdr-entry))            ; TCO
 
@@ -1143,7 +1143,7 @@ array."
     ,@(call 'car 'rbx)
     ,@(call 'lookup-var-in-frame 'rax 'ret)
     (assign (reg rcx) (reg ret))
-    ,@(call 'is-error 'rcx)
+    ,@(call 'is-error? 'rcx)
     (jez (label lookup-in-env-found))
     ,@(call 'cdr 'rbx)
     (assign (reg rbx) (reg ret))
@@ -2233,7 +2233,7 @@ array."
          `((assign (reg rax) (const 0))
            (assign (reg rbx) (const ,empty-list))
            ,@(call 'assoc 'rax 'rbx)
-           ,@(call 'is-error 'ret)))))
+           ,@(call 'is-error? 'ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
@@ -2299,7 +2299,7 @@ array."
  (let ((machine
         (make-test-machine
          `(,@(call 'lookup-in-env 0 empty-list)
-           ,@(call 'is-error 'ret)))))
+           ,@(call 'is-error? 'ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
