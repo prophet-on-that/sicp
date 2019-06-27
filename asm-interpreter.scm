@@ -92,7 +92,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
   '("#f"
     "#t"
     "error:assoc:not-found"
-    "error:unbound-variable"))
+    "error:unbound-variable"
+    "error:cannot-set-unbound-variable"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1101,6 +1102,57 @@ array."
     (ret)
 
     ;; Args:
+    ;; 0 - key
+    ;; 1 - value
+    ;; 2 - frame
+    ;; Output: error if not found. Unspecified on success.
+    ;;
+    ;; NOTE: could only load value from memory when needed, although
+    ;; this would complicate tail-call optimisation.
+    set-in-frame!
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; Arg 2
+
+    set-in-frame!-entry
+    ,@(call 'car 'rcx)
+    (assign (reg rcx) (reg ret))        ; Symbol-value alist
+
+    set-in-frame!-test
+    (test (op =) (reg rcx) (const ,empty-list))
+    (jne (label set-in-frame!-error))
+    ,@(call 'car 'rcx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'car 'rdx)
+    (test (op =) (reg ret) (reg rax))
+    (jne (label set-in-frame!-continue))
+    ,@(call 'cdr 'rcx)
+    (assign (reg rcx) (reg ret))
+    (goto (label set-in-frame!-test))
+
+    set-in-frame!-error
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+            'rax)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
+
+    set-in-frame!-continue
+    ,@(call 'set-cdr! 'rdx 'rbx)
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
     ;; 0 - list of symbols
     ;; 1 - list of symbol values
     ;; 2 - existing environment
@@ -1174,6 +1226,58 @@ array."
     (assign (reg rax) (reg ret))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
+
+    ;; Modifies environment in-place.
+    ;; Args:
+    ;; 0 - key
+    ;; 1 - value
+    ;; 2 - env
+    ;; Output: error if the variable is unbound, otherwise unspecified.
+    set-in-env!
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; Arg 2
+    (test (op =) (reg rcx) (const ,empty-list))
+    (jne (label set-in-env!-error))
+
+    set-in-env!-test
+    ,@(call 'cdr 'rcx)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label set-in-env!-final-frame))
+    (assign (reg rdx) (reg ret))
+    ,@(call 'car 'rcx)
+    (assign (reg rcx) (reg rdx))
+    ,@(call 'set-in-frame! 'rax 'rbx 'ret)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
+    (jez (label set-in-env!-end))
+    (goto (label set-in-env!-test))
+
+    set-in-env!-error
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+            'rax)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
+
+    set-in-env!-final-frame
+    ,@(call 'car 'rcx)
+    (assign (reg rcx) (reg ret))
+    (goto (label set-in-frame!-entry))  ; TCO
+
+    set-in-env!-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
 
     _start))
 
@@ -2367,3 +2471,98 @@ array."
          #:max-num-pairs 1024)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 3)))
+
+(test-group
+ "env--set-in-env!--unbound--empty-env"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'set-in-env! 0 1 empty-list)
+           ,@(call 'is-error? 'ret))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "env--set-in-env!--unbound-non-empty-env"
+ ;; Test set-in-env! 2 4 (((1 . 3) (0 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list 2 1 0)
+           (assign (reg rax) (reg ret))
+           ,@(call 'list 2 3 2)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           ,@(call 'set-in-env! 2 4 'ret)
+           ,@(call 'is-error? 'ret))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "env--set-in-env!--single-frame"
+ ;; Test set-in-env! 0 4 (((1 . 3) (0 . 2) (2 . 5))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list 3 1 0 2)
+           (assign (reg rax) (reg ret))
+           ,@(call 'list 3 3 2 5)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'set-in-env! 0 4 'rbx)
+           ,@(call 'lookup-in-env 0 'rbx)
+           (assign (reg rcx) (reg ret))
+           ,@(call 'lookup-in-env 1 'rbx)
+           (assign (reg rdx) (reg ret))
+           ,@(call 'lookup-in-env 2 'rbx))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rcx)) 4)
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) 3)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 5)))
+
+(test-group
+ "env--set-in-env!--multiple-frames"
+ ;; Test set-in-env! 0 4 (((1 . 3)) ((0 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons 0 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 2 empty-list)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           (assign (reg rbx) (reg ret))
+           ,@(call 'cons 1 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 3 empty-list)
+           ,@(call 'extend-env 'rax 'ret 'rbx)
+           (assign (reg rcx) (reg ret))
+           ,@(call 'set-in-env! 0 4 'rcx)
+           ,@(call 'lookup-in-env 0 'rcx)
+           (assign (reg rdx) (reg ret))
+           ,@(call 'lookup-in-env 1 'rcx))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) 4)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 3)))
+
+(test-group
+ "env--set-in-env!--shadowed-variable"
+ ;; Test set-in-env! 1 4 (((1 . 3)) ((1 . 2)))
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons 1 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 2 empty-list)
+           ,@(call 'extend-env 'rax 'ret empty-list)
+           (assign (reg rbx) (reg ret)) ; The inner environment
+           ,@(call 'cons 1 empty-list)
+           (assign (reg rax) (reg ret))
+           ,@(call 'cons 3 empty-list)
+           ,@(call 'extend-env 'rax 'ret 'rbx)
+           (assign (reg rax) (reg ret)) ; The full environment
+           ,@(call 'set-in-env! 1 4 'rax)
+           ,@(call 'lookup-in-env 1 'rax)
+           (assign (reg rcx) (reg ret))
+           ,@(call 'lookup-in-env 1 'rbx))
+         #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine rcx)) 4)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
