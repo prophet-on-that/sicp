@@ -2280,18 +2280,20 @@ array."
  ;; Test list 0 1 2
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 2 0 1)
+         `(,@(call 'list 3 0 1 2)
            (assign (reg rax) (reg ret))
            ,@(call 'car 'rax)
            (assign (reg rbx) (reg ret))
            ,@(call 'cadr 'rax)
            (assign (reg rcx) (reg ret))
-           ,@(call 'cddr 'rax)
-           (assign (reg rdx) (reg ret))))))
+           ,@(call 'caddr 'rax)
+           (assign (reg rdx) (reg ret))
+           ,@(call 'cdddr 'rax)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine rbx)) 0)
    (test-eqv (get-register-contents (get-machine-register machine rcx)) 1)
-   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) 2)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
 
 (test-group
  "env--lookup-in-env--empty-env"
