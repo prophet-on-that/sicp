@@ -1068,6 +1068,8 @@ array."
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    lookup-in-frame-entry
     ,@(call 'car 'rbx)
     ,@(call 'assoc 'rax 'ret)
     (assign (reg rax) (reg ret))
@@ -1197,23 +1199,35 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
+    (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-
-    lookup-in-env-test
     (test (op =) (reg rbx) (const ,empty-list))
     (jne (label lookup-in-env-not-found))
+
+    lookup-in-env-test
+    ,@(call 'cdr 'rbx)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label lookup-in-env-final-frame))
+    (assign (reg rcx) (reg ret))
     ,@(call 'car 'rbx)
     ,@(call 'lookup-in-frame 'rax 'ret)
-    (assign (reg rcx) (reg ret))
-    ,@(call 'is-error? 'rcx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
     (jez (label lookup-in-env-found))
-    ,@(call 'cdr 'rbx)
-    (assign (reg rbx) (reg ret))
+    (assign (reg rbx) (reg rcx))
     (goto (label lookup-in-env-test))
 
+    lookup-in-env-final-frame
+    ,@(call 'car 'rbx)
+    (assign (reg rbx) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label lookup-in-frame-entry)) ; TCO
+
     lookup-in-env-found
-    (assign (reg ret) (reg rcx))
+    (assign (reg ret) (reg rdx))
+    (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
@@ -1224,6 +1238,7 @@ array."
     (assign (reg rbx) (const ,empty-list))
     ,@(call 'cons 'rax 'rbx)
     (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
