@@ -1028,7 +1028,7 @@ array."
     (goto (label list-test))
 
     list-continue
-    (assign (reg rbx) (reg ret))
+    (assign (reg ret) (reg rbx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
@@ -1082,7 +1082,7 @@ array."
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
     (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; Arg 2
     ,@(call 'car 'rcx)                  ; binding alist of frame
-    ,@(call 'acons 'rax 'rbx 'rcx)
+    ,@(call 'acons 'rax 'rbx 'ret)
     ,@(call 'set-car! 'rcx 'ret)
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
