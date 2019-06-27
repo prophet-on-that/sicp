@@ -2307,12 +2307,12 @@ array."
 
 (test-group
  "env--lookup-in-env--single-frame"
- ;; Test lookup-in-env 0 '(((1 . 3) (0 . 2)))
+ ;; Test lookup-in-env 0 '(((1 . 3) (0 . 2) (2 . 4))
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 2 1 0)
+         `(,@(call 'list 3 1 0 2)
            (assign (reg rax) (reg ret))
-           ,@(call 'list 2 3 2)
+           ,@(call 'list 3 3 2 4)
            ,@(call 'extend-env 'rax 'ret empty-list)
            ,@(call 'lookup-in-env 0 'ret))
          #:max-num-pairs 1024)))
