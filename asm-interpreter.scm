@@ -326,58 +326,72 @@ array."
     ;; 0 - pair from which to extract the cadr
     ;; Output: cadr of pair
     cadr
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'cdr 'ret)
-    ,@(call 'car 'ret)
-    (ret)
+    (assign (reg rax) (reg ret))
+    (goto (label car-entry))            ; TCO
 
     ;; Args:
     ;; 0 - pair from which to extract the cddr
     ;; Output: cddr of pair
     cddr
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'cdr 'ret)
-    ,@(call 'cdr 'ret)
+    (assign (reg rax) (reg ret))
+    (goto (label cdr-entry))            ; TCO
     (ret)
 
     ;; Args:
     ;; 0 - pair from which to extract the caar
     ;; Output: caar of pair
     caar
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'car 'ret)
-    ,@(call 'car 'ret)
-    (ret)
+    (assign (reg rax) (reg ret))
+    (goto (label car-entry))            ; TCO
 
     ;; Args:
     ;; 0 - pair from which to extract the caadr
     ;; Output: caadr of pair
     caadr
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'cdr 'ret)
     ,@(call 'car 'ret)
-    ,@(call 'car 'ret)
-    (ret)
+    (assign (reg rax) (reg ret))
+    (goto (label car-entry))            ; TCO
 
     ;; Args:
     ;; 0 - pair from which to extract the caddr
     ;; Output: caddr of pair
     caddr
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'cdr 'ret)
     ,@(call 'cdr 'ret)
-    ,@(call 'car 'ret)
+    (assign (reg rax) (reg ret))
+    (goto (label car-entry))            ; TCO
     (ret)
 
     ;; Args:
     ;; 0 - pair from which to extract the cdddr
     ;; Output: cdddr of pair
-    ;; TODO: TCO
     cdddr
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; Arg 0 - pair
     ,@(call 'cdr 'ret)
     ,@(call 'cdr 'ret)
-    ,@(call 'cdr 'ret)
+    (assign (reg rax) (reg ret))
+    (goto (label cdr-entry))            ; TCO
     (ret)
 
     gc
