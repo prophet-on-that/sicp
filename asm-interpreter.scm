@@ -2684,3 +2684,13 @@ array."
           #:max-num-pairs 1024)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) value)))
+
+(test-group
+ "eval--error-unknown-exp-type"
+ (let* ((machine
+         (make-test-machine
+          `(,@(call 'eval 0 empty-list)
+            ,@(call 'is-error? 'ret))
+          #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
