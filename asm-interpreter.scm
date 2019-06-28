@@ -1217,6 +1217,8 @@ array."
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    lookup-in-env-entry
     (test (op =) (reg rbx) (const ,empty-list))
     (jne (label lookup-in-env-not-found))
 
@@ -1319,6 +1321,7 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
+    (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Exp
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Env
     ;; TODO: use a data-directed approach to resolve expression
@@ -1328,6 +1331,8 @@ array."
     (assign (reg rcx) (op logand) (reg rax) (const ,tag-mask))
     (test (op =) (reg rcx) (const ,number-tag))
     (jne (label eval-number))
+    (test (op =) (reg rcx) (const ,symbol-tag))
+    (jne (label lookup-in-env-entry))   ; TCO
     (goto (label eval-unknown-exp))
 
     eval-number
@@ -1344,6 +1349,7 @@ array."
     (goto (label make-error-entry))     ; TCO
 
     eval-end
+    (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
@@ -2662,3 +2668,19 @@ array."
    (continue-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret))
      (logior number-tag exp))))
+
+(test-group
+ "eval--symbol"
+ (let* ((symbol (get-predefined-symbol-value "#f"))
+        (value (logior number-tag 9))
+        (machine
+         (make-test-machine
+          `((call init-predefined-symbols)
+            ,@(call 'cons symbol empty-list)
+            (assign (reg rax) (reg ret))
+            ,@(call 'cons value empty-list)
+            ,@(call 'extend-env 'rax 'ret empty-list)
+            ,@(call 'eval symbol 'ret))
+          #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) value)))
