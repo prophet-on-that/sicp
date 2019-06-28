@@ -93,7 +93,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "#t"
     "error:assoc:not-found"
     "error:unbound-variable"
-    "error:cannot-set-unbound-variable"))
+    "error:cannot-set-unbound-variable"
+    "error:eval:unknown-exp-type"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1303,6 +1304,46 @@ array."
 
     set-in-env!-end
     (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Eval
+
+    ;; Args:
+    ;; 0 - expression to evaluate
+    ;; 1 - environment in which to evaluate the expression
+    ;; Output: result of the evaluation, or an error
+    eval
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Exp
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Env
+    ;; TODO: use a data-directed approach to resolve expression
+    ;; handlers. Consider using the tag if a non-pair or the symbol
+    ;; number of the first element of the pair as offsets into an
+    ;; array of labels.
+    (assign (reg rcx) (op logand) (reg rax) (const ,tag-mask))
+    (test (op =) (reg rcx) (const ,number-tag))
+    (jne (label eval-number))
+    (goto (label eval-unknown-exp))
+
+    eval-number
+    (assign (reg ret) (reg rax))
+    (goto (label eval-end))
+
+    eval-unknown-exp
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "error:eval:unknown-exp-type")
+            'rax)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
+
+    eval-end
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
@@ -2595,3 +2636,29 @@ array."
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine rcx)) 4)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
+
+;;; Eval testing
+
+(test-group
+ "eval--number"
+ (let* ((exp 9)
+        (exp-str (string->list (format #f "~a" exp)))
+        (max-num-pairs 1024)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (machine
+         (make-test-machine
+          `((call init-predefined-symbols)
+            (assign (reg rax) (const ,read-buffer-offset))
+            (assign (reg rbx) (const ,(+ read-buffer-offset (length exp-str))))
+            ,@(call 'parse-exp 'rax 'rbx)
+            ,@(call 'car 'ret)
+            (assign (reg rax) (reg ret))
+            ,@(call 'eval 'rax empty-list))
+          #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp-str))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     (logior number-tag exp))))
