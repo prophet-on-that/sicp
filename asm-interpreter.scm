@@ -2745,20 +2745,12 @@ EVAL for magic value not accessible to the programmer"
  (test-eval 9 9))
 
 (test-group
- "eval--symbol"
- (let* ((symbol (get-predefined-symbol-value "#f"))
-        (value (logior number-tag 9))
-        (machine
-         (make-test-machine
-          `((call init-predefined-symbols)
-            ,@(call 'cons symbol empty-list)
-            (assign (reg rax) (reg ret))
-            ,@(call 'cons value empty-list)
-            ,@(call 'extend-env 'rax 'ret empty-list)
-            ,@(call 'eval symbol 'ret))
-          #:max-num-pairs 1024)))
-   (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine ret)) value)))
+ "eval--symbol--#t"
+ (test-eval #t #t))
+
+(test-group
+ "eval--symbol--#f"
+ (test-eval #f #f))
 
 (test-group
  "eval--error-unknown-exp-type"
