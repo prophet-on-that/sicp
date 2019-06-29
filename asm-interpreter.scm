@@ -1311,6 +1311,22 @@ array."
     (stack-pop (reg rax))
     (ret)
 
+    ;; Output: a single-frame environment with initial definitions.
+    get-initial-env
+    (stack-push (reg rax))
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "#f")
+            (get-predefined-symbol-value "#t"))
+    (assign (reg rax) (reg ret))
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "#f")
+            (get-predefined-symbol-value "#t"))
+    ,@(call 'extend-env 'rax 'ret empty-list) ; TODO: TCO
+    (stack-pop (reg rax))
+    (ret)
+
     ;; Eval
 
     ;; Args:
