@@ -15,7 +15,9 @@
 (define broken-heart #x30000000)
 (define empty-list #x40000000)
 (define symbol-tag #x50000000)
-(define error-magic-value #x60000000)
+(define magic-value-tag #x60000000)
+(define error-magic-value magic-value-tag)
+(define unspecified-magic-value (logior magic-value-tag 1))
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -94,7 +96,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "error:assoc:not-found"
     "error:unbound-variable"
     "error:cannot-set-unbound-variable"
-    "error:eval:unknown-exp-type"))
+    "error:eval:unknown-exp-type"
+    "if"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1340,6 +1343,8 @@ array."
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Exp
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Env
+
+    eval-entry
     ;; TODO: use a data-directed approach to resolve expression
     ;; handlers. Consider using the tag if a non-pair or the symbol
     ;; number of the first element of the pair as offsets into an
@@ -1349,10 +1354,58 @@ array."
     (jne (label eval-number))
     (test (op =) (reg rcx) (const ,symbol-tag))
     (jne (label lookup-in-env-entry))   ; TCO
+    (test (op =) (reg rcx) (const ,pair-tag))
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "if")))
+    (goto (label eval-if))
+    ;; TODO
     (goto (label eval-unknown-exp))
 
     eval-number
     (assign (reg ret) (reg rax))
+    (goto (label eval-end))
+
+    eval-if
+    ,@(call 'cdr 'rax)                  ; The CDR of EXP
+    (assign (reg rax) (reg ret))
+    ,@(call 'pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; The predicate
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rdx) (reg ret))        ; The consequent
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label eval-if-no-alternative))
+    ,@(call 'pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rax) (reg ret))        ; The alternative
+    ,@(call 'eval 'rcx 'rbx)
+    (test (op =) (reg ret) (const ,(get-predefined-symbol-value "#f")))
+    (jne (label eval-entry))            ; TCO
+    (assign (reg rax) (reg rdx))
+    (goto (label eval-entry))           ; TCO
+
+    eval-if-no-alternative
+    ,@(call 'eval 'rcx 'rbx)
+    (test (op =) (reg ret) (const ,(get-predefined-symbol-value "#f")))
+    (jne (label eval-if-return-unspecified))
+    (assign (reg rax) (reg rdx))
+    (goto (label eval-entry))           ; TCO
+
+    eval-if-return-unspecified
+    (assign (reg ret) (const ,unspecified-magic-value))
     (goto (label eval-end))
 
     eval-unknown-exp
@@ -1361,6 +1414,7 @@ array."
             (get-predefined-symbol-value "error:eval:unknown-exp-type")
             'rax)
     (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
@@ -2761,3 +2815,39 @@ EVAL for magic value not accessible to the programmer"
           #:max-num-pairs 1024)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "eval--if--true"
+ (test-eval '(if #t 1 0) 1))
+
+(test-group
+ "eval--if--false"
+ (test-eval '(if #f 1 0) 0))
+
+(test-group
+ "eval--if--true-no-alternative"
+ (test-eval '(if #t 1) 1))
+
+(test-group
+ "eval--if--false-no-alternative"
+ (test-eval '(if #f 1) unspecified-magic-value))
+
+(test-group
+ "eval--if--no-args"
+ (test-eval-error '(if)))
+
+(test-group
+ "eval--if--no-consequent"
+ (test-eval-error '(if #t)))
+
+(test-group
+ "eval--if--too-many-args"
+ (test-eval-error '(if #t 0 1 2)))
+
+(test-group
+ "eval--if--improper-list-consequent"
+ (test-eval-error '(if #t . 0)))
+
+(test-group
+ "eval--if--improper-list-alternative"
+ (test-eval-error '(if #t 0 . 1)))
