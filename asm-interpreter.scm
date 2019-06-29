@@ -2661,29 +2661,88 @@ array."
 
 ;;; Eval testing
 
+(define (test-eval exp res)
+  (let* ((max-num-pairs 1024)
+         (exp-str (string->list (format #f "~a" exp)))
+         (res-str (string->list (format #f "~a" res)))
+         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+         (machine
+          (make-test-machine
+           `((call init-predefined-symbols)
+             (call get-initial-env)
+             (assign (reg rax) (reg ret)) ; Env
+             ,@(call 'parse-exp
+                     read-buffer-offset
+                     (+ read-buffer-offset (length exp-str)))
+             ,@(call 'car 'ret)
+             ,@(call 'eval 'ret 'rax)
+             (assign (reg rax) (reg ret)) ; The result of eval
+             ,@(call 'parse-exp
+                     (+ read-buffer-offset (length exp-str))
+                     (+ read-buffer-offset (length exp-str) (length res-str)))
+             ,@(call 'car 'ret)
+             ,@(call 'equal? 'rax 'ret))
+           #:max-num-pairs max-num-pairs)))
+    (reset-machine machine)
+    (write-memory (get-machine-memory machine)
+                  read-buffer-offset
+                  (map char->integer (append exp-str res-str)))
+    (continue-machine machine)
+    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(define (test-eval-error exp)
+  (let* ((max-num-pairs 1024)
+         (exp-str (string->list (format #f "~a" exp)))
+         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+         (machine
+          (make-test-machine
+           `((call init-predefined-symbols)
+             (call get-initial-env)
+             (assign (reg rax) (reg ret)) ; Env
+             ,@(call 'parse-exp
+                     read-buffer-offset
+                     (+ read-buffer-offset (length exp-str)))
+             ,@(call 'car 'ret)
+             ,@(call 'eval 'ret 'rax)
+             ,@(call 'is-error? 'ret))
+           #:max-num-pairs max-num-pairs)))
+    (reset-machine machine)
+    (write-memory (get-machine-memory machine)
+                  read-buffer-offset
+                  (map char->integer exp-str))
+    (continue-machine machine)
+    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+;;; TODO: refactor together with TEST-EVAL-ERROR - pass in remainder
+;;; of code.
+(define (test-eval-raw-result exp res)
+  "Like TEST-EVAL, but do not parse RES. Allows testing the result of
+EVAL for magic value not accessible to the programmer"
+  (let* ((max-num-pairs 1024)
+         (exp-str (string->list (format #f "~a" exp)))
+         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+         (machine
+          (make-test-machine
+           `((call init-predefined-symbols)
+             (call get-initial-env)
+             (assign (reg rax) (reg ret)) ; Env
+             ,@(call 'parse-exp
+                     read-buffer-offset
+                     (+ read-buffer-offset (length exp-str)))
+             ,@(call 'car 'ret)
+             ,@(call 'eval 'ret 'rax)
+             (test (op =) (reg ret) (const ,res)))
+           #:max-num-pairs max-num-pairs)))
+    (reset-machine machine)
+    (write-memory (get-machine-memory machine)
+                  read-buffer-offset
+                  (map char->integer exp-str))
+    (continue-machine machine)
+    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
 (test-group
  "eval--number"
- (let* ((exp 9)
-        (exp-str (string->list (format #f "~a" exp)))
-        (max-num-pairs 1024)
-        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-        (machine
-         (make-test-machine
-          `((call init-predefined-symbols)
-            (assign (reg rax) (const ,read-buffer-offset))
-            (assign (reg rbx) (const ,(+ read-buffer-offset (length exp-str))))
-            ,@(call 'parse-exp 'rax 'rbx)
-            ,@(call 'car 'ret)
-            (assign (reg rax) (reg ret))
-            ,@(call 'eval 'rax empty-list))
-          #:max-num-pairs max-num-pairs)))
-   (reset-machine machine)
-   (write-memory (get-machine-memory machine)
-                 read-buffer-offset
-                 (map char->integer exp-str))
-   (continue-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine ret))
-     (logior number-tag exp))))
+ (test-eval 9 9))
 
 (test-group
  "eval--symbol"
