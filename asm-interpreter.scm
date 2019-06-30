@@ -1392,20 +1392,30 @@ array."
     ,@(call 'car 'rax)
     (assign (reg rax) (reg ret))        ; The alternative
     ,@(call 'eval 'rcx 'rbx)
-    (test (op =) (reg ret) (const ,(get-predefined-symbol-value "#f")))
+    (assign (reg rcx) (reg ret))
+    ,@(call 'is-error? 'rcx)
+    (jne (label eval-if-predicate-error))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "#f")))
     (jne (label eval-entry))            ; TCO
     (assign (reg rax) (reg rdx))
     (goto (label eval-entry))           ; TCO
 
     eval-if-no-alternative
     ,@(call 'eval 'rcx 'rbx)
-    (test (op =) (reg ret) (const ,(get-predefined-symbol-value "#f")))
+    (assign (reg rcx) (reg ret))
+    ,@(call 'is-error? 'rcx)
+    (jne (label eval-if-predicate-error))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "#f")))
     (jne (label eval-if-return-unspecified))
     (assign (reg rax) (reg rdx))
     (goto (label eval-entry))           ; TCO
 
     eval-if-return-unspecified
     (assign (reg ret) (const ,unspecified-magic-value))
+    (goto (label eval-end))
+
+    eval-if-predicate-error
+    (assign (reg ret) (reg rcx))
     (goto (label eval-end))
 
     eval-unknown-exp
@@ -2851,3 +2861,11 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--if--improper-list-alternative"
  (test-eval-error '(if #t 0 . 1)))
+
+(test-group
+ "eval--if--propagated-predicate-error"
+ (test-eval-error '(if x 1 1)))
+
+(test-group
+ "eval--if--propagated-predicate-error-no-alternative"
+ (test-eval-error '(if x 1)))
