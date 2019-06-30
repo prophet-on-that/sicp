@@ -1330,6 +1330,24 @@ array."
     (stack-pop (reg rax))
     (ret)
 
+    ;; Test whether an object is a Scheme pair - something that
+    ;; satisfies POINTER-TO-PAIR? where the CAR of the pair is not a
+    ;; magic value.
+    ;; Args:
+    ;; 0 - Object to test
+    pair?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label pair?-end))
+    ,@(call 'car 'rax)
+    (assign (reg rax) (op logand) (reg ret) (const ,tag-mask))
+    (test (op !=) (reg rax) (const ,magic-value-tag))
+
+    pair?-end
+    (stack-pop (reg rax))
+    (ret)
+
     ;; Eval
 
     ;; Args:
@@ -1354,7 +1372,7 @@ array."
     (jne (label eval-number))
     (test (op =) (reg rcx) (const ,symbol-tag))
     (jne (label lookup-in-env-entry))   ; TCO
-    (test (op =) (reg rcx) (const ,pair-tag))
+    ,@(call 'pair? 'rcx)
     (jez (label eval-unknown-exp))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))
@@ -2723,6 +2741,32 @@ array."
    (test-eqv (get-register-contents (get-machine-register machine rcx)) 4)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
 
+(test-group
+ "lib--pair?--number"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'pair? (logior number-tag 1))))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "lib--pair?--valid-pair"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons (logior number-tag 1) empty-list)
+           ,@(call 'pair? 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--pair?--error"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'make-error empty-list)
+           ,@(call 'pair? 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
 ;;; Eval testing
 
 (define* (test-eval exp res #:key (trace #f))
@@ -2804,10 +2848,21 @@ EVAL for magic value not accessible to the programmer"
  (test-eval #f #f))
 
 (test-group
- "eval--error-unknown-exp-type"
+ "eval--error--unknown-exp-type"
  (let* ((machine
          (make-test-machine
           `(,@(call 'eval 0 empty-list)
+            ,@(call 'is-error? 'ret))
+          #:max-num-pairs 1024)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "eval--error--error-input"
+ (let* ((machine
+         (make-test-machine
+          `(,@(call 'make-error empty-list)
+            ,@(call 'eval 'ret empty-list)
             ,@(call 'is-error? 'ret))
           #:max-num-pairs 1024)))
    (start-machine machine)
