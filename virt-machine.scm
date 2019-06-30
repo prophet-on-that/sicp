@@ -116,6 +116,8 @@
               (list '- -)
               (list '* *)
               (list '= =)
+              (list '!= (lambda (a b)
+                          (not (= a b))))
               (list '< <)
               (list '<= <=)
               (list '> >)
