@@ -218,7 +218,7 @@ array."
 
     ;; Args:
     ;; 0 - Object to test
-    pair?
+    pointer-to-pair?
     (mem-load (reg ret) (op +) (reg bp) (const 2)) ; arg 0
     (assign (reg ret) (op logand) (reg ret) (const ,tag-mask))
     (test (op =) (reg ret) (const ,pair-tag))
@@ -234,7 +234,7 @@ array."
 
     car-entry
     ,@(if runtime-checks?
-          `(,@(call 'pair? 'rax)
+          `(,@(call 'pointer-to-pair? 'rax)
             (jez (label car-invalid-arg)))
           '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pair arrays
@@ -258,7 +258,7 @@ array."
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     ,@(if runtime-checks?
-          `(,@(call 'pair? 'rax)
+          `(,@(call 'pointer-to-pair? 'rax)
             (jez (label set-car!-invalid-arg)))
           '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pairs array
@@ -285,7 +285,7 @@ array."
 
     cdr-entry
     ,@(if runtime-checks?
-          `(,@(call 'pair? 'rax)
+          `(,@(call 'pointer-to-pair? 'rax)
             (jez (label cdr-invalid-arg)))
           '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pair arrays
@@ -309,7 +309,7 @@ array."
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     ,@(if runtime-checks?
-          `(,@(call 'pair? 'rax)
+          `(,@(call 'pointer-to-pair? 'rax)
             (jez (label set-cdr!-invalid-arg)))
           '())
     (assign (reg rax) (op logand) (reg rax) (const ,value-mask)) ; Offset into pairs array
@@ -470,7 +470,7 @@ array."
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (reg rax))   ; Candidate object for relocation
     (stack-push (reg rbx))
-    (call pair?)
+    (call pointer-to-pair?)
     (stack-pop)
     (jez (label gc-relocate-pair-end))
     (stack-push (reg rbx))
@@ -535,12 +535,12 @@ array."
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
     equal?-entry
-    ,@(call 'pair? 'rax)
+    ,@(call 'pointer-to-pair? 'rax)
     (jne (label equal?-first-pair))
     (goto (label equal?-test-eq?))
 
     equal?-first-pair
-    ,@(call 'pair? 'rbx)
+    ,@(call 'pointer-to-pair? 'rbx)
     (jne (label equal?-second-pair))
     (goto (label equal?-test-eq?))
 
@@ -968,7 +968,7 @@ array."
     is-error?
     (stack-push (reg rax))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    ,@(call 'pair? 'rax)
+    ,@(call 'pointer-to-pair? 'rax)
     (jez (label is-error?-end))
     ,@(call 'car 'rax)
     (test (op =) (reg ret) (const ,error-magic-value))
@@ -1370,13 +1370,13 @@ array."
     eval-if
     ,@(call 'cdr 'rax)                  ; The CDR of EXP
     (assign (reg rax) (reg ret))
-    ,@(call 'pair? 'rax)
+    ,@(call 'pointer-to-pair? 'rax)
     (jez (label eval-unknown-exp))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))        ; The predicate
     ,@(call 'cdr 'rax)
     (assign (reg rax) (reg ret))
-    ,@(call 'pair? 'rax)
+    ,@(call 'pointer-to-pair? 'rax)
     (jez (label eval-unknown-exp))
     ,@(call 'car 'rax)
     (assign (reg rdx) (reg ret))        ; The consequent
@@ -1384,7 +1384,7 @@ array."
     (assign (reg rax) (reg ret))
     (test (op =) (reg rax) (const ,empty-list))
     (jne (label eval-if-no-alternative))
-    ,@(call 'pair? 'rax)
+    ,@(call 'pointer-to-pair? 'rax)
     (jez (label eval-unknown-exp))
     ,@(call 'cdr 'rax)
     (test (op =) (reg ret) (const ,empty-list))
@@ -1543,8 +1543,8 @@ array."
    (test-eqv (get-memory memory free-pair-pointer) 1)))
 
 (test-group
- "memory--pair?--true"
- ;; Test pair?: true
+ "memory--pointer-to-pair?--true"
+ ;; Test pointer-to-pair?: true
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -1554,20 +1554,20 @@ array."
             (call cons)
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
-            (call pair?)
+            (call pointer-to-pair?)
             (stack-pop))))
         (flag (get-machine-flag machine)))
    (start-machine machine)
    (test-eqv (get-register-contents flag) 1)))
 
 (test-group
- "memory--pair?--false"
- ;; Test pair?: false
+ "memory--pointer-to-pair?--false"
+ ;; Test pointer-to-pair?: false
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call pair?)
+            (call pointer-to-pair?)
             (stack-pop))))
         (flag (get-machine-flag machine)))
    (start-machine machine)
