@@ -18,6 +18,7 @@
 (define magic-value-tag #x60000000)
 (define error-magic-value magic-value-tag)
 (define unspecified-magic-value (logior magic-value-tag 1))
+(define lambda-magic-value (logior magic-value-tag 2))
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -97,7 +98,9 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "error:unbound-variable"
     "error:cannot-set-unbound-variable"
     "error:eval:unknown-exp-type"
-    "if"))
+    "error:eval:lambda-syntax"
+    "if"
+    "lambda"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1348,6 +1351,29 @@ array."
     (stack-pop (reg rax))
     (ret)
 
+    ;; Args:
+    ;; 0 - Formals
+    ;; 1 - Body
+    ;; 2 - Env
+    make-lambda
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; Arg 2
+
+    make-lambda-entry
+    ,@(call-list
+       lambda-magic-value
+       'rax
+       'rbx
+       'rcx)
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
     ;; Test whether an object is a Scheme list.
     ;; Args:
     ;; 0 - Object to test
@@ -1397,7 +1423,9 @@ array."
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))
     (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "if")))
-    (goto (label eval-if))
+    (jne (label eval-if))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "lambda")))
+    (jne (label eval-lambda))
     ;; TODO
     (goto (label eval-unknown-exp))
 
@@ -1456,15 +1484,46 @@ array."
     (assign (reg ret) (reg rcx))
     (goto (label eval-end))
 
-    eval-unknown-exp
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "error:eval:unknown-exp-type")
-            'rax)
+    ;; TODO: support args list syntax
+    eval-lambda
+    ,@(call 'cdr 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'list? 'rcx)
+    (jez (label eval-error-lambda-syntax))
+    (test (op =) (reg rcx) (const ,empty-list))
+    (jne (label eval-error-lambda-syntax))
+    ,@(call 'car 'rcx)
+    (assign (reg rdx) (reg ret))        ; Formals
+    ,@(call 'list? 'rdx)
+    (jez (label eval-error-lambda-syntax))
+    ,@(call 'cdr 'rcx)
+    (assign (reg rcx) (reg ret))        ; Body
+    (test (op =) (reg rcx) (const ,empty-list))
+    (jne (label eval-error-lambda-syntax))
+    (assign (reg rax) (reg rdx))
+    (assign (reg rdx) (reg rbx))
+    (assign (reg rbx) (reg rcx))
+    (assign (reg rcx) (reg rdx))
+    (stack-pop (reg rdx))
+    (goto (label make-lambda-entry))
+
+    eval-error
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
+
+    eval-unknown-exp
+    ,@(call-list
+       (get-predefined-symbol-value "error:eval:unknown-exp-type")
+       'rax)
+    (goto (label eval-error))
+
+    eval-error-lambda-syntax
+    ,@(call-list
+       (get-predefined-symbol-value "error:eval:lambda-syntax")
+       'rax)
+    (goto (label eval-error))
 
     eval-end
     (stack-pop (reg rdx))
@@ -2920,6 +2979,12 @@ EVAL for magic value not accessible to the programmer"
                     `((test (op =) (reg ret) (const ,res)))
                     #:trace trace))
 
+(define* (test-eval-lambda exp #:key (trace #f))
+  (test-eval-helper exp
+                    `(,@(call 'car 'ret)
+                      (test (op =) (reg ret) (const ,lambda-magic-value)))
+                    #:trace trace))
+
 (test-group
  "eval--number"
  (test-eval 9 9))
@@ -2996,3 +3061,41 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--if--propagated-predicate-error-no-alternative"
  (test-eval-error '(if x 1) "error:unbound-variable"))
+
+(test-group
+ "eval--lambda--valid-empty-formals"
+ (test-eval-lambda '(lambda () #t)))
+
+(test-group
+ "eval--lambda--multiple-formals"
+ (test-eval-lambda '(lambda (a b) #t)))
+
+(test-group
+ "eval--lambda--valid-multiple-statements"
+ (test-eval-lambda '(lambda (a b)
+                      (set! c (+ a b))
+                      c)))
+
+(test-group
+ "eval--lambda--error-no-formals-or-body"
+ (test-eval-error '(lambda) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--lambda--error-no-body"
+ (test-eval-error '(lambda ()) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--lambda--error-symbol-formals"
+ (test-eval-error '(lambda 0 #t) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--lambda--error-improper-formals"
+ (test-eval-error '(lambda (a . b) #t) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--lambda--error-improper-body"
+ (test-eval-error '(lambda () . #t) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--lambda--error-improper-body-multiple-statements"
+ (test-eval-error '(lambda () #f . #t) "error:eval:lambda-syntax"))
