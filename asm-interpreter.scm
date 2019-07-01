@@ -2828,10 +2828,13 @@ array."
     (continue-machine machine)
     (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
-(define* (test-eval-error exp #:key (trace #f))
-  (test-eval-helper exp
-                    (call 'is-error? 'ret)
-                    #:trace trace))
+(define* (test-eval-error exp err #:key (trace #f))
+  (let ((error-symbol
+         (get-predefined-symbol-value err)))
+    (test-eval-helper exp
+                      `(,@(call 'cadr 'ret) ; Symbol of the error
+                        (test (op =) (reg ret) (const ,error-symbol)))
+                      #:trace trace)))
 
 (define* (test-eval-raw exp res #:key (trace #f))
   "Like TEST-EVAL, but do not parse RES. Allows testing the result of
@@ -2891,28 +2894,28 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--if--no-args"
- (test-eval-error '(if)))
+ (test-eval-error '(if) "error:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--no-consequent"
- (test-eval-error '(if #t)))
+ (test-eval-error '(if #t) "error:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--too-many-args"
- (test-eval-error '(if #t 0 1 2)))
+ (test-eval-error '(if #t 0 1 2) "error:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-consequent"
- (test-eval-error '(if #t . 0)))
+ (test-eval-error '(if #t . 0) "error:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-alternative"
- (test-eval-error '(if #t 0 . 1)))
+ (test-eval-error '(if #t 0 . 1) "error:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--propagated-predicate-error"
- (test-eval-error '(if x 1 1)))
+ (test-eval-error '(if x 1 1) "error:unbound-variable"))
 
 (test-group
  "eval--if--propagated-predicate-error-no-alternative"
- (test-eval-error '(if x 1)))
+ (test-eval-error '(if x 1) "error:unbound-variable"))
