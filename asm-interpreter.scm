@@ -1084,22 +1084,28 @@ array."
     lookup-in-frame
     (stack-push (reg rax))
     (stack-push (reg rbx))
+    (stack-push (reg rcx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
     lookup-in-frame-entry
     ,@(call 'car 'rbx)
     ,@(call 'assoc 'rax 'ret)
-    (assign (reg rax) (reg ret))
-    ,@(call 'is-error? 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'is-error? 'rcx)
     (jne (label lookup-in-frame-error))
+    (assign (reg rax) (reg rcx))
+    (stack-pop (reg rcx))
     (goto (label cdr-entry))            ; TCO
 
     lookup-in-frame-error
-    (assign (reg ret) (reg rax))
-    (stack-pop (reg rbx))
-    (stack-pop (reg rax))
-    (ret)
+    ,@(call 'list
+            2
+            (get-predefined-symbol-value "error:unbound-variable")
+            'rax)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     ;; Modify frame in-place by adding new binding.
     ;; Args:
@@ -1242,7 +1248,6 @@ array."
     ,@(call 'car 'rbx)
     (assign (reg rbx) (reg ret))
     (stack-pop (reg rdx))
-    (stack-pop (reg rcx))
     (goto (label lookup-in-frame-entry)) ; TCO
 
     lookup-in-env-found
