@@ -2772,6 +2772,67 @@ array."
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
 
+(test-group
+ "lib--list?--empty-list"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list? empty-list)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--list?--singleton-list"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons
+                   (logior number-tag 0)
+                   empty-list)
+           ,@(call 'list? 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--list?--list"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list
+                   4
+                   0
+                   1
+                   2
+                   3)
+           ,@(call 'list? 'ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--list?--number"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'list? (logior number-tag 0))))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "lib--list?--error"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'make-error empty-list)
+           ,@(call 'list? ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "lib--list?--improper-list"
+ (let ((machine
+        (make-test-machine
+         `(,@(call 'cons
+                   (logior number-tag 0)
+                   (logior number-tag 1))
+           ,@(call 'list? ret)))))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
 ;;; Eval testing
 
 (define* (test-eval exp res #:key (trace #f))
