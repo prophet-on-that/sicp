@@ -1099,10 +1099,9 @@ array."
     (goto (label cdr-entry))            ; TCO
 
     lookup-in-frame-error
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "error:unbound-variable")
-            'rax)
+    ,@(call-list
+       (get-predefined-symbol-value "error:unbound-variable")
+       'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1161,10 +1160,9 @@ array."
     (goto (label set-in-frame!-test))
 
     set-in-frame!-error
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "error:cannot-set-unbound-variable")
-            'rax)
+    ,@(call-list
+       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
@@ -1298,10 +1296,9 @@ array."
     (goto (label set-in-env!-test))
 
     set-in-env!-error
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "error:cannot-set-unbound-variable")
-            'rax)
+    ,@(call-list
+       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
@@ -1322,15 +1319,13 @@ array."
     ;; Output: a single-frame environment with initial definitions.
     get-initial-env
     (stack-push (reg rax))
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "#f")
-            (get-predefined-symbol-value "#t"))
+    ,@(call-list
+       (get-predefined-symbol-value "#f")
+       (get-predefined-symbol-value "#t"))
     (assign (reg rax) (reg ret))
-    ,@(call 'list
-            2
-            (get-predefined-symbol-value "#f")
-            (get-predefined-symbol-value "#t"))
+    ,@(call-list
+       (get-predefined-symbol-value "#f")
+       (get-predefined-symbol-value "#t"))
     ,@(call 'extend-env 'rax 'ret empty-list) ; TODO: TCO
     (stack-pop (reg rax))
     (ret)
@@ -1350,6 +1345,26 @@ array."
     (test (op !=) (reg rax) (const ,magic-value-tag))
 
     pair?-end
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Test whether an object is a Scheme list.
+    ;; Args:
+    ;; 0 - Object to test
+    list?
+    (stack-push (reg rax))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+
+    list?-entry
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label list?-end))
+    ,@(call 'pair? 'rax)
+    (jez (label list?-end))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    (goto (label list?-entry))
+
+    list?-end
     (stack-pop (reg rax))
     (ret)
 
@@ -1511,6 +1526,12 @@ array."
      (set-memory! memory i n))
    list
    (iota (length list) offset)))
+
+(define (call-list . args)
+  (apply call
+         (append
+          (list 'list (length args))
+          args)))
 
 ;;; Test suite
 
@@ -2574,7 +2595,7 @@ array."
  ;; Test list 0 1 2
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 3 0 1 2)
+         `(,@(call-list 0 1 2)
            (assign (reg rax) (reg ret))
            ,@(call 'car 'rax)
            (assign (reg rbx) (reg ret))
@@ -2604,9 +2625,9 @@ array."
  ;; Test lookup-in-env 0 '(((1 . 3) (0 . 2) (2 . 4))
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 3 1 0 2)
+         `(,@(call-list 1 0 2)
            (assign (reg rax) (reg ret))
-           ,@(call 'list 3 3 2 4)
+           ,@(call-list 3 2 4)
            ,@(call 'extend-env 'rax 'ret empty-list)
            ,@(call 'lookup-in-env 0 'ret))
          #:max-num-pairs 1024)))
@@ -2666,9 +2687,9 @@ array."
  ;; Test set-in-env! 2 4 (((1 . 3) (0 . 2)))
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 2 1 0)
+         `(,@(call-list 1 0)
            (assign (reg rax) (reg ret))
-           ,@(call 'list 2 3 2)
+           ,@(call-list 3 2)
            ,@(call 'extend-env 'rax 'ret empty-list)
            ,@(call 'set-in-env! 2 4 'ret)
            ,@(call 'is-error? 'ret))
@@ -2681,9 +2702,9 @@ array."
  ;; Test set-in-env! 0 4 (((1 . 3) (0 . 2) (2 . 5))
  (let ((machine
         (make-test-machine
-         `(,@(call 'list 3 1 0 2)
+         `(,@(call-list 1 0 2)
            (assign (reg rax) (reg ret))
-           ,@(call 'list 3 3 2 5)
+           ,@(call-list 3 2 5)
            ,@(call 'extend-env 'rax 'ret empty-list)
            (assign (reg rbx) (reg ret))
            ,@(call 'set-in-env! 0 4 'rbx)
@@ -2795,12 +2816,7 @@ array."
  "lib--list?--list"
  (let ((machine
         (make-test-machine
-         `(,@(call 'list
-                   4
-                   0
-                   1
-                   2
-                   3)
+         `(,@(call-list 0 1 2 3)
            ,@(call 'list? 'ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
