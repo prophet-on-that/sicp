@@ -99,6 +99,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "error:cannot-set-unbound-variable"
     "error:eval:unknown-exp-type"
     "error:eval:lambda-syntax"
+    "error:eval:application-syntax"
+    "error:eval:wrong-type-to-apply"
     "if"
     "lambda"))
 
@@ -1426,8 +1428,7 @@ array."
     (jne (label eval-if))
     (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "lambda")))
     (jne (label eval-lambda))
-    ;; TODO
-    (goto (label eval-unknown-exp))
+    (goto (label eval-application))
 
     eval-number
     (assign (reg ret) (reg rax))
@@ -1507,6 +1508,30 @@ array."
     (stack-pop (reg rdx))
     (goto (label make-lambda-entry))
 
+    eval-application
+    ;; TODO: only test for a valid list during debug
+    ,@(call 'list? 'rax)
+    (jez (label eval-error-application-syntax))
+    ,@(call 'eval-application-list 'rax 'rbx)
+    (assign (reg rbx) (reg ret))
+    ,@(call 'is-error? 'rbx)
+    (jne (label eval-application-error))
+    ,@(call 'car 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label apply-entry))          ; TCO
+
+    eval-error-application-syntax
+    ,@(call-list
+       (get-predefined-symbol-value "error:eval:application-syntax")
+       'rax)
+    (goto (label eval-error))
+
+    eval-application-error
+    (assign (reg ret) (reg rbx))
+    (goto (label eval-end))
+
     eval-error
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1531,6 +1556,125 @@ array."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Args:
+    ;; 0 - List of arguments to evaluate
+    ;; 1 - Env in which to evaluate
+    ;; Output: list of evaluated args, or error.
+    eval-application-list
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label eval-application-list-base-case))
+    ,@(call 'cdr 'rax)
+    ,@(call 'eval-application-list 'ret 'rbx)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'is-error? 'rcx)
+    (jne (label eval-application-list-cdr-error))
+    ,@(call 'car 'rax)
+    ,@(call 'eval 'ret 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error? 'rax)
+    (jne (label eval-application-list-car-error))
+    (assign (reg rbx) (reg rcx))
+    (stack-push (reg rdx))
+    (goto (label cons-entry))
+
+    eval-application-list-end
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    eval-application-list-car-error
+    (assign (reg ret) (reg rax))
+    (goto (label eval-application-list-end))
+
+    eval-application-list-cdr-error
+    (assign (reg ret) (reg rcx))
+    (goto (label eval-application-list-end))
+
+    eval-application-list-base-case
+    (assign (reg ret) (const ,empty-list))
+    (goto (label eval-application-list-end))
+
+    ;; Args:
+    ;; 0 - List to expressions to evaluate. PRE: this list must be
+    ;; non-empty.
+    ;; 1 - Environment
+    eval-exp-list
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    eval-exp-list-entry
+    eval-exp-list-test
+    ,@(call 'cdr 'rax)
+    (assign (reg rcx) (reg ret))
+    (test (op =) (reg rcx) (const ,empty-list))
+    (jne (label eval-exp-list-last-exp))
+    ,@(call 'car 'rax)
+    ,@(call 'eval 'ret 'rbx)
+    (assign (reg rax) (reg rcx))
+    (goto (label eval-exp-list-test))
+
+    eval-exp-list-last-exp
+    ,@(call 'car 'rax)
+    (assign (reg rax) (reg ret))
+    (stack-push (reg rdx))
+    (goto (label eval-entry))           ; TODO
+
+    ;; Args:
+    ;; 0 - Lambda or primitive
+    ;; 1 - Arguments list
+    ;; Output: result of application, or error.
+    apply
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    apply-entry
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label apply-error))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    (test (op =) (reg rcx) (const ,lambda-magic-value))
+    (jne (label apply-lambda))
+    ;; TODO
+
+    apply-error
+    ,@(call-list
+       (get-predefined-symbol-value "error:eval:wrong-type-to-apply")
+       'rax)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
+
+    apply-lambda
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; Formals
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rdx) (reg ret))        ; Body
+    ,@(call 'cadr 'rax)
+    (assign (reg rax) (reg ret))        ; Env
+    ,@(call 'extend-env 'rcx 'rbx 'rax)
+    (assign (reg rbx) (reg ret))        ; Updated environment
+    (assign (reg rax) (reg rdx))
+    (stack-pop (reg rdx))
+    (goto (label eval-exp-list-entry))  ; TCO
 
     _start))
 
@@ -3099,3 +3243,23 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--lambda--error-improper-body-multiple-statements"
  (test-eval-error '(lambda () #f . #t) "error:eval:lambda-syntax"))
+
+(test-group
+ "eval--apply--lambda-no-args"
+ (test-eval '((lambda () 1)) 1))
+
+(test-group
+ "eval--apply--lambda-identity"
+ (test-eval '((lambda (x) x) 1) 1))
+
+(test-group
+ "eval--apply--lambda-const"
+ (test-eval '((lambda (x y) x) 1 2) 1))
+
+(test-group
+ "eval--apply--lambda-two-args"
+ (test-eval '((lambda (x y) y) 1 2) 2))
+
+(test-group
+ "eval--apply--error-non-function"
+ (test-eval-error '(1) "error:eval:wrong-type-to-apply" #:trace #f))
