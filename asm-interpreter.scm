@@ -198,7 +198,7 @@ array."
     (mem-load (reg rcx) (const ,free-pair-pointer))
     (test (op >=) (reg rcx) (const ,max-num-pairs))
     (jez (label cons-after-gc))
-    (call gc)
+    (call (label gc))
     ;; Throw error if no space exists after garbage collection
     (mem-load (reg rcx) (const ,free-pair-pointer))
     (test (op >=) (reg rcx) (const ,max-num-pairs))
@@ -421,7 +421,7 @@ array."
     (test (op <) (reg rax) (const ,memory-size))
     (jez (label gc-after-stack-relocate))
     (stack-push (reg rax))
-    (call gc-relocate-pair)
+    (call (label gc-relocate-pair))
     (stack-pop)
     (assign (reg rax) (op +) (reg rax) (const 1))
     (goto (label gc-stack-relocate))
@@ -475,11 +475,11 @@ array."
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (reg rax))   ; Candidate object for relocation
     (stack-push (reg rbx))
-    (call pointer-to-pair?)
+    (call (label pointer-to-pair?))
     (stack-pop)
     (jez (label gc-relocate-pair-end))
     (stack-push (reg rbx))
-    (call car)
+    (call (label car))
     (stack-pop)
     (test (op =) (reg ret) (const ,broken-heart))
     (jne (label gc-relocate-pair-already-moved))
@@ -490,7 +490,7 @@ array."
     (mem-store (reg rcx) (reg ret))
     ;; Relocate CDR of old pair to new memory
     (stack-push (reg rbx))
-    (call cdr)
+    (call (label cdr))
     (stack-pop)
     (mem-load (reg rcx) (const ,new-cdrs-pointer))
     (assign (reg rcx) (op +) (reg rcx) (reg rdx)) ; Offset into new-cdrs
@@ -498,12 +498,12 @@ array."
     ;; Set CAR of old pair to broken heart
     (stack-push (const ,broken-heart))
     (stack-push (reg rbx))
-    (call set-car!)
+    (call (label set-car!))
     (assign (reg sp) (op +) (reg sp) (const 2))
     ;; Set CDR of old pair to FREE-PAIR-POINTER
     (stack-push (reg rdx))
     (stack-push (reg rbx))
-    (call set-cdr!)
+    (call (label set-cdr!))
     (assign (reg sp) (op +) (reg sp) (const 2))
     ;; Set memory location to point to new pair
     (assign (reg rcx) (op logior) (const ,pair-tag) (reg rdx))
@@ -516,7 +516,7 @@ array."
     gc-relocate-pair-already-moved
     ;; Point location to CDR of already-moved pair
     (stack-push (reg rbx))
-    (call cdr)
+    (call (label cdr))
     (stack-pop)
     (assign (reg rbx) (op logior) (reg ret) (const ,pair-tag))
     (mem-store (reg rax) (reg rbx))
@@ -1194,7 +1194,7 @@ array."
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
-    (call get-new-frame)
+    (call (label get-new-frame))
     (assign (reg rcx) (reg ret))        ; New frame
 
     extend-env-test
@@ -1781,7 +1781,7 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2)))))
         (ret (get-machine-register machine ret))
         (memory (get-machine-memory machine)))
@@ -1798,10 +1798,10 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 2))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
-            (call pointer-to-pair?)
+            (call (label pointer-to-pair?))
             (stack-pop))))
         (flag (get-machine-flag machine)))
    (start-machine machine)
@@ -1814,7 +1814,7 @@ array."
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call pointer-to-pair?)
+            (call (label pointer-to-pair?))
             (stack-pop))))
         (flag (get-machine-flag machine)))
    (start-machine machine)
@@ -1829,10 +1829,10 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
-            (call car)
+            (call (label car))
             (stack-pop))))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -1845,7 +1845,7 @@ array."
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call car)
+            (call (label car))
             (stack-pop)))))
    (test-error #t (start-machine machine))))
 
@@ -1858,10 +1858,10 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
-            (call cdr)
+            (call (label cdr))
             (stack-pop))))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -1874,7 +1874,7 @@ array."
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cdr)
+            (call (label cdr))
             (stack-pop)))))
    (test-error #t (start-machine machine))))
 
@@ -1887,16 +1887,16 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (assign (reg rax) (reg ret))
             (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
             (stack-push (reg rbx))
             (stack-push (reg rax))
-            (call set-car!)
+            (call (label set-car!))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
-            (call car)
+            (call (label car))
             (stack-pop))))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -1910,7 +1910,7 @@ array."
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (stack-push (reg rax))
-            (call set-car!)
+            (call (label set-car!))
             (assign (reg sp) (op +) (reg sp) (const 2))))))
    (test-error #t (start-machine machine))))
 
@@ -1923,16 +1923,16 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (assign (reg rax) (reg ret))
             (assign (reg rbx) (op logior) (const ,number-tag) (const 3))
             (stack-push (reg rbx))
             (stack-push (reg rax))
-            (call set-cdr!)
+            (call (label set-cdr!))
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
-            (call cdr)
+            (call (label cdr))
             (stack-pop))))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -1946,7 +1946,7 @@ array."
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (stack-push (reg rax))
-            (call set-cdr!)
+            (call (label set-cdr!))
             (assign (reg sp) (op +) (reg sp) (const 2))))))
    (test-error #t (start-machine machine))))
 
@@ -1997,14 +1997,14 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (stack-pop)
             (assign (reg rax) (reg ret))
-            (call gc)
+            (call (label gc))
             (stack-push (reg rax))
-            (call car)
+            (call (label car))
             (assign (reg rbx) (reg ret))
-            (call cdr)
+            (call (label cdr))
             (stack-pop)
             (assign (reg rcx) (reg ret)))))
         (rax (get-machine-register machine rax))
@@ -2023,10 +2023,10 @@ array."
             (stack-push (reg rax))
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
-            (call cons)
+            (call (label cons))
             (stack-pop)
             (assign (reg ret) (const 0))
-            (call gc))))
+            (call (label gc)))))
         (memory (get-machine-memory machine)))
    (start-machine machine)
    (test-eqv (get-memory memory free-pair-pointer) 0)))
@@ -2039,7 +2039,7 @@ array."
             (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (reg ret))
-            (call gc))))
+            (call (label gc)))))
         (memory (get-machine-memory machine))
         (ret (get-machine-register machine ret))
         (rax (get-machine-register machine rax)))
@@ -2061,7 +2061,7 @@ array."
             (assign (reg rbx) (op logior) (const ,number-tag) (const 4))
             ,@(call 'cons 'rax 'rbx)
             ,@(call 'cons 'rcx 'ret)
-            (call gc)
+            (call (label gc))
             ,@(call 'car 'ret)
             ,@(call 'cdr 'ret))))
         (memory (get-machine-memory machine))
@@ -2721,7 +2721,7 @@ array."
                   `((assign (reg rax) (const ,read-buffer-offset))
                     (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                     ,@(call 'parse-exp 'rax 'rbx)
-                    (call gc)
+                    (call (label gc))
                     (mem-load (reg rax) (const ,symbol-list))
                     ,@(call 'car 'rax)
                     (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
@@ -3061,8 +3061,8 @@ array."
          (read-buffer-offset (get-read-buffer-offset max-num-pairs))
          (machine
           (make-test-machine
-           `((call init-predefined-symbols)
-             (call get-initial-env)
+           `((call (label init-predefined-symbols))
+             (call (label get-initial-env))
              (assign (reg rax) (reg ret)) ; Env
              ,@(call 'parse-exp
                      read-buffer-offset
@@ -3091,8 +3091,8 @@ array."
          (read-buffer-offset (get-read-buffer-offset max-num-pairs))
          (machine
           (make-test-machine
-           `((call init-predefined-symbols)
-             (call get-initial-env)
+           `((call (label init-predefined-symbols))
+             (call (label get-initial-env))
              (assign (reg rax) (reg ret)) ; Env
              ,@(call 'parse-exp
                      read-buffer-offset

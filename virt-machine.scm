@@ -697,9 +697,18 @@
         (memory (get-machine-memory machine))
         (sp (get-machine-register machine 'sp))
         (bp (get-machine-register machine 'bp))
-        (next-inst (lookup-label labels (call-target inst))))
+        (call-target-exp (call-target inst)))
     (lambda ()
-      (let ((current-sp (get-register-contents sp)))
+      (let ((current-sp (get-register-contents sp))
+            (next-inst
+             (cond ((label-exp? call-target-exp)
+                    (lookup-label labels
+                                  (label-exp-label call-target-exp)))
+                   ((register-exp? call-target-exp)
+                    (get-register-contents
+                     (get-machine-register machine (register-exp-reg call-target-exp))))
+                   (else
+                    (error "Bad CALL target" inst)))))
         (set-memory! memory (1- current-sp) (cdr (get-register-contents pc)))
         (set-memory! memory (- current-sp 2) (get-register-contents bp))
         (set-register-contents! sp
@@ -779,7 +788,7 @@ otherwise."
                (else
                 (error "Unknown arg type -- CALL" arg)))))
     (reverse args))
-   `((call ,label))
+   `((call (label ,label)))
    (if (not (null? args))
        `((assign (reg sp) (op +) (reg sp) (const ,(length args))))
        '())))
@@ -1020,7 +1029,7 @@ otherwise."
                                       (assign (reg 0) (const 1))
                                       (ret)
                                       start
-                                      (call sub)))))
+                                      (call (label sub))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
@@ -1034,9 +1043,20 @@ otherwise."
                                       start
                                       (stack-push (const 2))
                                       (stack-push (const 1))
-                                      (call sub)))))
+                                      (call (label sub))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 3))
+
+(let ((machine
+       (make-machine-load-text 4 16 '((goto (label start))
+                                      sub
+                                      (assign (reg 0) (const 1))
+                                      (ret)
+                                      start
+                                      (assign (reg 0) (label sub))
+                                      (call (reg 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
 ;;; Test error
 (let ((machine
@@ -1107,7 +1127,7 @@ otherwise."
           (jne (label base-case))
           (assign (reg rbx) (op -) (reg rax) (const 1)) ; n - 1
           (stack-push (reg rbx))
-          (call factorial)
+          (call (label factorial))
           (stack-pop)
           (assign (reg rbx) (reg ret)) ; (n - 1)!
           (assign (reg ret) (op *) (reg rax) (reg rbx))
@@ -1120,7 +1140,7 @@ otherwise."
           (ret)                         ; return n
           start
           (stack-push (const 5))
-          (call factorial)))))
+          (call (label factorial))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 120))
 
