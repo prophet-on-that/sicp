@@ -3075,7 +3075,8 @@ array."
                      (+ read-buffer-offset (length exp-str) (length res-str)))
              ,@(call 'car 'ret)
              ,@(call 'equal? 'rax 'ret))
-           #:max-num-pairs max-num-pairs)))
+           #:max-num-pairs max-num-pairs
+           #:stack-size 1024)))
     (reset-machine machine)
     (write-memory (get-machine-memory machine)
                   read-buffer-offset
@@ -3261,5 +3262,22 @@ EVAL for magic value not accessible to the programmer"
  (test-eval '((lambda (x y) y) 1 2) 2))
 
 (test-group
+ "eval--apply--lambda-lexical-scope"
+ (test-eval '(((lambda (x) (lambda () x)) 1)) 1))
+
+(test-group
  "eval--apply--error-non-function"
- (test-eval-error '(1) "error:eval:wrong-type-to-apply" #:trace #f))
+ (test-eval-error '(1) "error:eval:wrong-type-to-apply"))
+
+(test-group
+ "eval--apply--lambda-error-first-argument"
+ (test-eval-error '((lambda (x) x) x) "error:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-error-second-argument"
+ (test-eval-error '((lambda (x) x) 1 x) "error:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-error-body"
+ (test-eval-error '((lambda (x) y)) "error:unbound-variable"))
+
