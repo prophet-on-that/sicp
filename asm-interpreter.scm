@@ -19,6 +19,7 @@
 (define error-magic-value magic-value-tag)
 (define unspecified-magic-value (logior magic-value-tag 1))
 (define lambda-magic-value (logior magic-value-tag 2))
+(define primitive-magic-value (logior magic-value-tag 3))
 
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
@@ -102,7 +103,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "error:eval:application-syntax"
     "error:eval:wrong-type-to-apply"
     "if"
-    "lambda"))
+    "lambda"
+    "cons"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1324,14 +1326,20 @@ array."
     ;; Output: a single-frame environment with initial definitions.
     get-initial-env
     (stack-push (reg rax))
+    (stack-push (reg rbx))
     ,@(call-list
        (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t"))
+       (get-predefined-symbol-value "#t")
+       (get-predefined-symbol-value "cons"))
     (assign (reg rax) (reg ret))
+    (assign (reg rbx) (label cons))
+    ,@(call 'make-primitive 2 'rbx)
     ,@(call-list
        (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t"))
+       (get-predefined-symbol-value "#t")
+       'ret)
     ,@(call 'extend-env 'rax 'ret empty-list) ; TODO: TCO
+    (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
 
@@ -1372,6 +1380,22 @@ array."
        'rbx
        'rcx)
     (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - Number of args
+    ;; 1 - Label pointing to beginning of code
+    make-primitive
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+    ,@(call-list
+       primitive-magic-value
+       'rax
+       'rbx)
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
@@ -1646,9 +1670,10 @@ array."
     (jez (label apply-error))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))
+    (test (op =) (reg rcx) (const ,primitive-magic-value))
+    (jne (label apply-primitive))
     (test (op =) (reg rcx) (const ,lambda-magic-value))
     (jne (label apply-lambda))
-    ;; TODO
 
     apply-error
     ,@(call-list
@@ -1675,6 +1700,39 @@ array."
     (assign (reg rax) (reg rdx))
     (stack-pop (reg rdx))
     (goto (label eval-exp-list-entry))  ; TCO
+
+    apply-primitive
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; Parameter count
+    ,@(call 'cadr 'rax)
+    (assign (reg rax) (reg ret))        ; Label
+    ;; TODO: reverse arguments list
+    (assign (reg rdx) (const 0))        ; Count of pushed args
+
+    apply-primitive-test
+    (test (op =) (reg rbx) (const ,empty-list))
+    (jne (label apply-primitive-continue))
+    ,@(call 'car 'rbx)
+    (stack-push (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (assign (reg rdx) (op +) (reg rdx) (const 1))
+    (goto (label apply-primitive-test))
+
+    apply-primitive-continue
+    (test (op =) (reg rdx) (reg rcx))
+    (jez (label apply-primitive-arg-count-error))
+    (call (reg rax))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    apply-primitive-arg-count-error
+    ;; TODO
 
     _start))
 
@@ -3281,3 +3339,10 @@ EVAL for magic value not accessible to the programmer"
  "eval--apply--lambda-error-body"
  (test-eval-error '((lambda (x) y)) "error:unbound-variable"))
 
+;;; TODO: apply
+;;; Catch errors with wrong numbers of params
+;;; Test multiple statements
+
+(test-group
+ "eval--apply--primitive-cons"
+ (test-eval '(cons 1 2) '(2 . 1) #:trace #t))
