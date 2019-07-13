@@ -35,7 +35,8 @@
 (define new-cars-pointer 3)
 (define new-cdrs-pointer 4)
 (define read-buffer-pointer 5)
-(define symbol-list 6)
+(define symbol-trie-root 6)
+(define symbol-counter 7)
 (define char-table-offset 8)
 (define char-table-size 128)
 (define the-cars-offset (+ char-table-offset char-table-size))
@@ -165,8 +166,11 @@ array."
     (mem-store (const ,read-buffer-pointer) (reg rax))
 
     ;; Initalise symbol list
-    (assign (reg rax) (const ,empty-list))
-    (mem-store (const ,symbol-list) (reg rax))
+    (call (label new-trie-item))
+    (mem-store (const ,symbol-trie-root) (reg ret))
+
+    ;; Initialise symbol counter
+    (mem-store (const ,symbol-counter) (const 0))
 
     ;; Initialise char table. For parsing expressions, we store an
     ;; integer for each character representing the various character
@@ -413,8 +417,8 @@ array."
          `(stack-push (reg ,i)))
        (range 0 num-registers))
     (mem-store (const ,free-pair-pointer) (const 0))
-    ;; Relocate SYMBOL-LIST
-    (assign (reg rax) (const ,symbol-list))
+    ;; Relocate SYMBOL-TRIE-ROOT
+    (assign (reg rax) (const ,symbol-trie-root))
     ,@(call 'gc-relocate-pair 'rax)
     ;; Relocate all pairs on stack
     (assign (reg rax) (reg sp))         ; Stack index pointer
@@ -575,51 +579,86 @@ array."
     (stack-pop (reg rax))
     (ret)
 
+    ;; Interning symbols
+
+    ;; Output: a new trie item, represented as a pair, consisting of
+    ;; an alist of (symbol, trie item) pairs and an optional symbol
+    ;; identifier. A lack of symbol is represented with the constant
+    ;; 0.
+    new-trie-item
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (assign (reg rax) (const ,empty-list))
+    (assign (reg rbx) (const 0))
+    (goto (label cons-entry))
+
     ;; Args:
     ;; 0 - list holding the parsed characters of the symbol
     ;; Output: the value uniquely identifying the symbol
     ;;
-    ;; A symbol is identified by its index in SYMBOL-LIST.
+    ;; Symbols are held in a trie data structure, the root of which
+    ;; can be accessed from SYMBOL-TRIE-ROOT.
     intern-symbol
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
     (stack-push (reg rdx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (mem-load (reg rbx) (const ,symbol-list))
-    (test (op =) (reg rbx) (const ,empty-list))
-    (jne (label intern-symbol-empty-list))
-    (assign (reg rcx) (const 0))        ; Index in SYMBOL-LIST
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Symbol character list
+    (mem-load (reg rbx) (const ,symbol-trie-root)) ; The current trie item
 
     intern-symbol-test
-    ,@(call 'car 'rbx)
-    ,@(call 'equal? 'rax 'ret)
-    (jne (label intern-symbol-found))
-    (assign (reg rcx) (op +) (reg rcx) (const 1))
-    ,@(call 'cdr 'rbx)
-    (test (op =) (reg ret) (const ,empty-list))
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label intern-symbol-continue))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; Current character
+    ,@(call 'car 'rbx)                  ; Character-trie item alist
+    ,@(call 'assoc 'rcx 'ret)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
     (jne (label intern-symbol-not-found))
+    ,@(call 'cdr 'rdx)
     (assign (reg rbx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
     (goto (label intern-symbol-test))
 
-    intern-symbol-empty-list
-    ;; Set SYMBOL-LIST to a singleton list
-    (assign (reg rdx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rdx)
-    (mem-store (const ,symbol-list) (reg ret))
-    (assign (reg ret) (op logior) (const 0) (const ,symbol-tag))
+    ;; At this point, there exists at least one character to be
+    ;; appended to the trie.
+    intern-symbol-not-found
+    (call (label new-trie-item))
+    (assign (reg rdx) (reg ret))
+    ,@(call 'car 'rbx)                  ; Character-trie item alist
+    ,@(call 'acons 'rcx 'rdx 'ret)
+    ,@(call 'set-car! 'rbx 'ret)
+    (assign (reg rbx) (reg rdx))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label intern-symbol-continue))
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    (goto (label intern-symbol-not-found))
+
+    ;; At this point, the character list is empty and the current trie
+    ;; item holds/will hold the symbol to be returned.
+    intern-symbol-continue
+    ,@(call 'cdr 'rbx)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (op logand) (reg rax) (const ,tag-mask))
+    (test (op =) (reg rcx) (const ,symbol-tag))
+    (jne (label intern-symbol-found))
+    (mem-load (reg rax) (const ,symbol-counter))
+    (assign (reg rcx) (op logior) (const ,symbol-tag) (reg rax))
+    ,@(call 'set-cdr! 'rbx 'rcx)
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    (mem-store (const ,symbol-counter) (reg rax))
+    (assign (reg ret) (reg rcx))
     (goto (label intern-symbol-end))
 
     intern-symbol-found
-    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
-    (goto (label intern-symbol-end))
-
-    intern-symbol-not-found
-    ;; Add the symbol to the end of SYMBOL-LIST
-    (assign (reg rdx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rdx)
-    ,@(call 'set-cdr! 'rbx 'ret)
-    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
+    (assign (reg ret) (reg rax))
 
     intern-symbol-end
     (stack-pop (reg rdx))
