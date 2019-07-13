@@ -134,7 +134,8 @@ array."
         (logior symbol-tag index)
         (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
 
-(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
+(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f) (init-symbol-trie? #t))
+  "INIT-SYMBOL-TRIE? can be set to false for testing, as it initialises a pair "
   `(
     (alias ,ret ret)
     (alias ,rax rax)
@@ -166,8 +167,10 @@ array."
     (mem-store (const ,read-buffer-pointer) (reg rax))
 
     ;; Initalise symbol list
-    (call (label new-trie-item))
-    (mem-store (const ,symbol-trie-root) (reg ret))
+    ,@(if init-symbol-trie?
+          `((call (label new-trie-item))
+            (mem-store (const ,symbol-trie-root) (reg ret)))
+          '())
 
     ;; Initialise symbol counter
     (mem-store (const ,symbol-counter) (const 0))
@@ -1777,9 +1780,9 @@ array."
 
 ;;; Utilities
 
-(define (wrap-code num-registers max-num-pairs memory-size code)
+(define* (wrap-code num-registers max-num-pairs memory-size code #:key (init-symbol-trie? #t))
   (append
-   (init num-registers max-num-pairs memory-size #:runtime-checks? #t)
+   (init num-registers max-num-pairs memory-size #:runtime-checks? #t #:init-symbol-trie? init-symbol-trie?)
    code))
 
 (define (range min max)
@@ -1849,7 +1852,8 @@ array."
                             (num-registers test-num-registers)
                             (stack-size test-stack-size)
                             (max-num-pairs test-max-num-pairs)
-                            (read-buffer-size test-read-buffer-size))
+                            (read-buffer-size test-read-buffer-size)
+                            (init-symbol-trie? #t))
   (let ((memory-size (+ the-cars-offset
                         (* 4 max-num-pairs)
                         read-buffer-size
@@ -1857,7 +1861,7 @@ array."
     (make-machine-load-text
      num-registers
      memory-size
-     (wrap-code num-registers max-num-pairs memory-size code)
+     (wrap-code num-registers max-num-pairs memory-size code #:init-symbol-trie? init-symbol-trie?)
      #:register-trace-renderer register-trace-renderer
      #:stack-limit stack-size)))
 
@@ -1879,7 +1883,8 @@ array."
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label cons))
-            (assign (reg sp) (op +) (reg sp) (const 2)))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret))
         (memory (get-machine-memory machine)))
    (start-machine machine)
@@ -1899,7 +1904,8 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label pointer-to-pair?))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (flag (get-machine-flag machine)))
    (start-machine machine)
    (test-eqv (get-register-contents flag) 1)))
@@ -1912,7 +1918,8 @@ array."
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label pointer-to-pair?))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (flag (get-machine-flag machine)))
    (start-machine machine)
    (test-eqv (get-register-contents flag) 0)))
@@ -1930,7 +1937,8 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label car))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 1))))
@@ -1943,7 +1951,8 @@ array."
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label car))
-            (stack-pop)))))
+            (stack-pop))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -1959,7 +1968,8 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label cdr))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 2))))
@@ -1972,7 +1982,8 @@ array."
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label cdr))
-            (stack-pop)))))
+            (stack-pop))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -1994,7 +2005,8 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
             (call (label car))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 3))))
@@ -2008,7 +2020,8 @@ array."
             (stack-push (reg rax))
             (stack-push (reg rax))
             (call (label set-car!))
-            (assign (reg sp) (op +) (reg sp) (const 2))))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -2030,7 +2043,8 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
             (call (label cdr))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 3))))
@@ -2044,7 +2058,8 @@ array."
             (stack-push (reg rax))
             (stack-push (reg rax))
             (call (label set-cdr!))
-            (assign (reg sp) (op +) (reg sp) (const 2))))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -2056,7 +2071,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const 1))
             ,@(call 'cons 'rax 'ret)
-            ,@(call 'cadr 'ret)))))
+            ,@(call 'cadr 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
 
@@ -2069,7 +2085,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const 1))
             ,@(call 'cons 'rax 'ret)
-            ,@(call 'cddr 'ret)))))
+            ,@(call 'cddr 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
 
@@ -2082,7 +2099,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const ,empty-list))
             ,@(call 'cons 'ret 'rax)
-            ,@(call 'caar 'ret)))))
+            ,@(call 'caar 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 1)))
 
@@ -2103,7 +2121,8 @@ array."
             (assign (reg rbx) (reg ret))
             (call (label cdr))
             (stack-pop)
-            (assign (reg rcx) (reg ret)))))
+            (assign (reg rcx) (reg ret)))
+          #:init-symbol-trie? #f))
         (rax (get-machine-register machine rax))
         (rbx (get-machine-register machine rbx))
         (rcx (get-machine-register machine rcx)))
@@ -2123,7 +2142,8 @@ array."
             (call (label cons))
             (stack-pop)
             (assign (reg ret) (const 0))
-            (call (label gc)))))
+            (call (label gc)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine)))
    (start-machine machine)
    (test-eqv (get-memory memory free-pair-pointer) 0)))
@@ -2136,7 +2156,8 @@ array."
             (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (reg ret))
-            (call (label gc)))))
+            (call (label gc)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (ret (get-machine-register machine ret))
         (rax (get-machine-register machine rax)))
@@ -2160,7 +2181,8 @@ array."
             ,@(call 'cons 'rcx 'ret)
             (call (label gc))
             ,@(call 'car 'ret)
-            ,@(call 'cdr 'ret))))
+            ,@(call 'cdr 'ret))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -2190,7 +2212,8 @@ array."
             ,@(call 'car 'rax)
             (assign (reg rbx) (reg ret))
             ,@(call 'cdr 'rax)
-            (assign (reg rcx) (reg ret)))))
+            (assign (reg rcx) (reg ret)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (rbx (get-machine-register machine rbx))
         (rcx (get-machine-register machine rcx)))
@@ -2217,7 +2240,8 @@ array."
             after-loop
             ;; Create further pair
             (assign (reg rax) (const ,test-max-num-pairs))
-            ,@(call 'cons 'rax 'rax)))))
+            ,@(call 'cons 'rax 'rax))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -2233,7 +2257,8 @@ array."
             (assign (reg ret) (const 0))
             (assign (reg rax) (op +) (reg rax) (const 1))
             (goto (label loop))
-            after-loop)))
+            after-loop)
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine)))
    (start-machine machine)
    (test-eqv (get-memory memory free-pair-pointer) 1)))
@@ -2241,80 +2266,83 @@ array."
 (test-group
  "lib--equal?--success"
  ;; Test equal? successful: '((1) (2))
- (let ((machine
-        (make-test-machine
-         `((goto (label start))
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `((goto (label start))
 
-           build-list
-           (stack-push (reg rax))
-           (stack-push (reg rbx))
-           (stack-push (reg rcx))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (reg ret))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rcx) (reg ret))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           ,@(call 'cons 'ret 'rcx)
-           (stack-pop (reg rcx))
-           (stack-pop (reg rbx))
-           (stack-pop (reg rax))
-           (ret)
+            build-list
+            (stack-push (reg rax))
+            (stack-push (reg rbx))
+            (stack-push (reg rcx))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (reg ret))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rcx) (reg ret))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            ,@(call 'cons 'ret 'rcx)
+            (stack-pop (reg rcx))
+            (stack-pop (reg rbx))
+            (stack-pop (reg rax))
+            (ret)
 
-           start
-           ,@(call 'build-list)
-           (assign (reg rax) (reg ret))
-           ,@(call 'build-list)
-           (assign (reg rbx) (reg ret))
-           ,@(call 'equal? 'rax 'rbx)))))
+            start
+            ,@(call 'build-list)
+            (assign (reg rax) (reg ret))
+            ,@(call 'build-list)
+            (assign (reg rbx) (reg ret))
+            ,@(call 'equal? 'rax 'rbx))
+          #:max-num-pairs max-num-pairs)))
    (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
- )
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
 (test-group
  "lib--equal?--failure"
  ;; Test equal? unsuccessful: (1 2) vs (1 2 3)
- (let ((machine
-        (make-test-machine
-         `((goto (label start))
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `((goto (label start))
 
-           ;; Args:
-           ;; 0 - integer M
-           ;; 1 - integer N
-           ;; Output: the list [M..N)
-           range
-           (stack-push (reg rax))
-           (stack-push (reg rbx))
-           (stack-push (reg rcx))
-           (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
-           (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
-           (test (op >=) (reg rax) (reg rbx))
-           (jne (label range-base-case))
-           (assign (reg rcx) (op +) (reg rax) (const 1))
-           ,@(call 'range 'rcx 'rbx)
-           ,@(call 'cons 'rax 'ret)
-           (goto (label range-end))
+            ;; Args:
+            ;; 0 - integer M
+            ;; 1 - integer N
+            ;; Output: the list [M..N)
+            range
+            (stack-push (reg rax))
+            (stack-push (reg rbx))
+            (stack-push (reg rcx))
+            (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
+            (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
+            (test (op >=) (reg rax) (reg rbx))
+            (jne (label range-base-case))
+            (assign (reg rcx) (op +) (reg rax) (const 1))
+            ,@(call 'range 'rcx 'rbx)
+            ,@(call 'cons 'rax 'ret)
+            (goto (label range-end))
 
-           range-base-case
-           (assign (reg ret) (const ,empty-list))
+            range-base-case
+            (assign (reg ret) (const ,empty-list))
 
-           range-end
-           (stack-pop (reg rcx))
-           (stack-pop (reg rbx))
-           (stack-pop (reg rax))
-           (ret)
+            range-end
+            (stack-pop (reg rcx))
+            (stack-pop (reg rbx))
+            (stack-pop (reg rax))
+            (ret)
 
-           start
-           (assign (reg rax) (const 0))
-           (assign (reg rbx) (const 2))
-           ,@(call 'range 'rax 'rbx)
-           (assign (reg rcx) (reg ret))
-           (assign (reg rbx) (const 3))
-           ,@(call 'range 'rax 'rbx)
-           ,@(call 'equal? 'rcx 'ret)))))
+            start
+            (assign (reg rax) (const 0))
+            (assign (reg rbx) (const 2))
+            ,@(call 'range 'rax 'rbx)
+            (assign (reg rcx) (reg ret))
+            (assign (reg rbx) (const 3))
+            ,@(call 'range 'rax 'rbx)
+            ,@(call 'equal? 'rcx 'ret))
+          #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
 
@@ -2661,22 +2689,25 @@ array."
                 (cadr test-case)
                 (string-length test-case)))
            (exp (string->list test-case-str))
+           (max-num-pairs 128)
+           (read-buffer-offset (get-read-buffer-offset max-num-pairs))
            (machine (make-test-machine
-                     `((assign (reg rax) (const ,test-read-buffer-offset))
-                       (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
+                     `((assign (reg rax) (const ,read-buffer-offset))
+                       (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                        ,@(call 'parse-symbol 'rax 'rbx)
                        (assign (reg rax) (reg ret))
                        ,@(call 'car 'rax)
                        (assign (reg rbx) (reg ret))
                        ,@(call 'cdr 'rax)
-                       (assign (reg rax) (reg ret))))))
+                       (assign (reg rax) (reg ret)))
+                     #:max-num-pairs max-num-pairs)))
       (reset-machine machine)
       (write-memory (get-machine-memory machine)
-                    test-read-buffer-offset
+                    read-buffer-offset
                     (map char->integer exp))
       (continue-machine machine)
       (test-eqv (get-register-contents (get-machine-register machine rax))
-        (+ test-read-buffer-offset test-case-parsed-count))
+        (+ read-buffer-offset test-case-parsed-count))
       (test-eqv (logand tag-mask
                         (get-register-contents (get-machine-register machine rbx)))
         symbol-tag)))
@@ -2819,24 +2850,28 @@ array."
                     (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                     ,@(call 'parse-exp 'rax 'rbx)
                     (call (label gc))
-                    (mem-load (reg rax) (const ,symbol-list))
-                    ,@(call 'car 'rax)
-                    (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
-                    ,@(call 'cdr 'rax)
-                    (assign (reg rax) (reg ret)) ; Remainder of SYMBOL-LIST
+                    (mem-load (reg rax) (const ,symbol-trie-root))
+                    ,@(call 'car 'rax) ; Character to trie item alist
+                    ,@(call 'car 'ret)
+                    (assign (reg rbx) (reg ret))
                     ,@(call 'car 'rbx)
-                    (assign (reg rcx) (reg ret)) ; First character in symbol
+                    (assign (reg rcx) (reg ret)) ; CAR of first entry in alist
                     ,@(call 'cdr 'rbx)
-                    (assign (reg rdx) (reg ret))) ; Remainder of character list
+                    (assign (reg rbx) (reg ret)) ; CDR of first entry in alist
+                    ,@(call 'car 'rbx)
+                    (assign (reg rdx) (reg ret)) ; Character to trie item alist
+                    ,@(call 'cdr 'rbx)
+                    (assign (reg rbx) (reg ret))) ; Symbol corresponding to trie item
                   #:max-num-pairs max-num-pairs)))
    (reset-machine machine)
    (write-memory (get-machine-memory machine)
                  read-buffer-offset
                  (map char->integer exp))
    (continue-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
    (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
-   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)
+   (test-eqv (get-register-contents (get-machine-register machine rbx))
+     (logior symbol-tag 0))))
 
 ;;; Environment testing
 
