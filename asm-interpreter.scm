@@ -1894,7 +1894,6 @@ array."
 
 (test-group
  "memory--pointer-to-pair?--true"
- ;; Test pointer-to-pair?: true
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
