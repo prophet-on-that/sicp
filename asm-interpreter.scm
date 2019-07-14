@@ -1863,6 +1863,7 @@ array."
      memory-size
      (wrap-code num-registers max-num-pairs memory-size code #:init-symbol-trie? init-symbol-trie?)
      #:register-trace-renderer register-trace-renderer
+     #:register-value-renderer render-trace-value
      #:stack-limit stack-size)))
 
 (define (test-match-only pattern)

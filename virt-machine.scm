@@ -35,7 +35,7 @@
              (lambda (val call-stack-depth)
                (let ((prev contents))
                  (set! contents val)
-                 (if trace
+                 (if (eq? trace 'full)
                      (print-with-indent
                       (trace-renderer name prev val)
                       call-stack-depth)))))
@@ -98,12 +98,15 @@
 
 (define initial-register-value -1)
 
+(define (default-register-value-renderer value)
+  (format #f "~a" value))
+
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-value-renderer) stack-limit)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (sp (make-register 'sp #:trace-renderer register-trace-renderer))
@@ -157,10 +160,26 @@
         (if (null? insts)
             'done
             (let ((next-inst (car insts)))
-              (if trace
-                  (print-with-indent
-                   (instruction-text next-inst)
-                   call-stack-depth))
+              (let ((text
+                     (instruction-text next-inst)))
+                (cond ((eq? trace 'function-calls)
+                       (cond ((eq? (car text) 'call)
+                              (print-with-indent
+                               (if (label-exp? (call-target text))
+                                   (label-exp-label (call-target text))
+                                   text)
+                               call-stack-depth))
+                             ((eq? (car text) 'ret)
+                              (print-with-indent
+                               (format #f
+                                       "ret: ~a"
+                                       (register-value-renderer
+                                        (get-register-contents (vector-ref registers 0))))
+                               (1- call-stack-depth)))))
+                      ((eq? trace 'full)
+                       (print-with-indent
+                        text
+                        call-stack-depth))))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -763,10 +782,11 @@
 
 ;;; Utilities
 
-(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-trace-renderer) stack-limit)
   (let ((machine (make-machine n-registers
                                n-memory-slots
                                #:register-trace-renderer register-trace-renderer
+                               #:register-value-renderer register-value-renderer
                                #:stack-limit stack-limit)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
