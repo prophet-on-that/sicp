@@ -1776,6 +1776,42 @@ array."
     apply-primitive-arg-count-error
     ;; TODO
 
+    ;; Args:
+    ;; 0 - list ot reverse
+    ;; Output: new, reversed list
+    reverse
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Unhandled list
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label reverse-empty-list))
+    (assign (reg rbx) (const ,empty-list)) ; Accumulated reversed list
+
+    ;; At this point, the unhandled list is non-empty
+    reverse-test
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label reverse-singleton))
+    (assign (reg rax) (reg ret))
+    ,@(call 'cons 'rcx 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label reverse-test))
+
+    reverse-singleton
+    (stack-push (reg rdx))
+    (assign (reg rax) (reg rcx))
+    (goto (label cons-entry))
+
+    reverse-empty-list
+    (assign (reg ret) (const ,empty-list))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
     _start))
 
 ;;; Utilities
@@ -3421,3 +3457,40 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--apply--primitive-cons"
  (test-eval '(cons 1 2) '(2 . 1) #:trace #t))
+
+(test-group
+ "lib--reverse--empty-list"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          (call 'reverse empty-list)
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
+
+(test-group
+ "lib--reverse--singleton"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0)
+            (assign (reg rax) (reg ret))
+            ,@(call 'reverse 'rax)
+            ,@(call 'equal? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--reverse--two-value-list"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'reverse 'ret)
+            (assign (reg rax) (reg ret))
+            ,@(call-list 1 0)
+            ,@(call 'equal? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
