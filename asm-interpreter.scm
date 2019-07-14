@@ -2346,105 +2346,106 @@ array."
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
 
-(test-group
- "read--parse-int--success"
- (for-each
-  (lambda (test-case)
-    (let* ((str
-            (if (string? test-case)
-                test-case
-                (car test-case)))
-           (parsed-number
-            (if (string? test-case)
-                (string->number test-case)
-                (cadr test-case)))
-           (count-chars-read
-            (if (string? test-case)
-                (string-length test-case)
-                (caddr test-case)))
-           (machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-               ,@(call 'parse-int 'rax 'rbx)
-               (assign (reg rax) (reg ret))
-               ,@(call 'car 'rax)
-               (assign (reg rbx) (reg ret))
-               ,@(call 'cdr 'rax))))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rbx))
-        (logior parsed-number number-tag))
-      (test-eqv (get-register-contents (get-machine-register machine ret))
-        (+ test-read-buffer-offset count-chars-read))))
-  '("0"
-    "9"
-    "999"
-    "1001"
-    "001111"
-    ("9 " 9 1)
-    ("9)" 9 1))))
+(for-each
+ (lambda (test-case)
+   (let ((str
+          (if (string? test-case)
+              test-case
+              (car test-case))))
+     (test-group
+      (format #f "read--parse-int--success-'~a'" str)
+      (let* (
+             (parsed-number
+              (if (string? test-case)
+                  (string->number test-case)
+                  (cadr test-case)))
+             (count-chars-read
+              (if (string? test-case)
+                  (string-length test-case)
+                  (caddr test-case)))
+             (machine
+              (make-test-machine
+               `((assign (reg rax) (const ,test-read-buffer-offset))
+                 (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+                 ,@(call 'parse-int 'rax 'rbx)
+                 (assign (reg rax) (reg ret))
+                 ,@(call 'car 'rax)
+                 (assign (reg rbx) (reg ret))
+                 ,@(call 'cdr 'rax))))
+             (memory (get-machine-memory machine)))
+        (reset-machine machine)
+        (write-memory memory
+                      test-read-buffer-offset
+                      (map char->integer (string->list str)))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rbx))
+          (logior parsed-number number-tag))
+        (test-eqv (get-register-contents (get-machine-register machine ret))
+          (+ test-read-buffer-offset count-chars-read))))))
+ '("0"
+   "9"
+   "999"
+   "1001"
+   "001111"
+   ("9 " 9 1)
+   ("9)" 9 1)))
 
-(test-group
- "read--parse-int--failure"
- (for-each
+(for-each
   (lambda (str)
-    (let* ((machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-               ,@(call 'parse-int 'rax 'rbx)
-               (test (op =) (reg ret) (const ,parse-failed-value))
-               (jne (label end))
-               (error (const -1))
+    (test-group
+     (format #f "read--parse-int--failure-'~a'" str)
+     (let* ((machine
+             (make-test-machine
+              `((assign (reg rax) (const ,test-read-buffer-offset))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+                ,@(call 'parse-int 'rax 'rbx)
+                (test (op =) (reg ret) (const ,parse-failed-value))
+                (jne (label end))
+                (error (const -1))
 
-               end)))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)))
+                end)))
+            (memory (get-machine-memory machine)))
+       (reset-machine machine)
+       (write-memory memory
+                     test-read-buffer-offset
+                     (map char->integer (string->list str)))
+       (continue-machine machine))))
   '(""
     "d"
     "1d"
     "1."
     "1'"
-    "1(")))
+    "1("))
 
-(test-group
- "read--parse-int--bounds-checking"
- (for-each
-  (lambda (test-case)
-    (let* ((str (car test-case))
-           (bound (cadr test-case))
-           (parsed-number (caddr test-case))
-           (machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
-               ,@(call 'parse-int 'rax 'rbx)
-               (assign (reg rax) (reg ret))
-               ,@(call 'car 'rax)
-               (assign (reg rbx) (reg ret))
-               ,@(call 'cdr 'rax))))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rbx))
-        (logior parsed-number number-tag))
-      (test-eqv (get-register-contents (get-machine-register machine ret))
-        (+ test-read-buffer-offset bound))))
-  '(("99" 1 9)
-    ("999" 2 99)
-    ("99d" 2 99))))
+(for-each
+ (lambda (test-case)
+   (let ((str (car test-case)))
+     (test-group
+      (format #f "read--parse-int--bounds-checking-'~a'" str)
+      (let* ((bound (cadr test-case))
+             (parsed-number (caddr test-case))
+             (machine
+              (make-test-machine
+               `((assign (reg rax) (const ,test-read-buffer-offset))
+                 (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
+                 ,@(call 'parse-int 'rax 'rbx)
+                 (assign (reg rax) (reg ret))
+                 ,@(call 'car 'rax)
+                 (assign (reg rbx) (reg ret))
+                 ,@(call 'cdr 'rax))))
+             (memory (get-machine-memory machine)))
+        (reset-machine machine)
+        (write-memory memory
+                      test-read-buffer-offset
+                      (map char->integer (string->list str)))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rbx))
+          (logior parsed-number number-tag))
+        (test-eqv (get-register-contents (get-machine-register machine ret))
+          (+ test-read-buffer-offset bound))))))
+ '(("99" 1 9)
+   ("999" 2 99)
+   ("99d" 2 99)))
 
 (test-group
  "read--parse-list--empty-list"
@@ -2653,10 +2654,10 @@ array."
    (test-eqv (get-register-contents (get-machine-register machine rbx))
      (logior number-tag 1))))
 
-(test-group
- "read--parse-list--failures"
- (for-each
-  (lambda (test-case)
+(for-each
+ (lambda (test-case)
+   (test-group
+    (format #f "read--parse-list--failures-'~a'" test-case)
     (let* ((exp (string->list (format #f "~a" test-case)))
            (machine (make-test-machine
                      `((assign (reg rax) (const ,test-read-buffer-offset))
@@ -2668,59 +2669,59 @@ array."
                     test-read-buffer-offset
                     (map char->integer exp))
       (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value)))
-  '("(1"
-    "((1)"
-    ")"
-    ""
-    "(1 .)"
-    "(1 . 2")))
+      (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value))))
+ '("(1"
+   "((1)"
+   ")"
+   ""
+   "(1 .)"
+   "(1 . 2"))
 
-(test-group
- "read--parse-symbol--success"
- (for-each
-  (lambda (test-case)
-    (let* ((test-case-str
-            (if (pair? test-case)
-                (car test-case)
-                test-case))
-           (test-case-parsed-count
-            (if (pair? test-case)
-                (cadr test-case)
-                (string-length test-case)))
-           (exp (string->list test-case-str))
-           (max-num-pairs 128)
-           (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-           (machine (make-test-machine
-                     `((assign (reg rax) (const ,read-buffer-offset))
-                       (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
-                       ,@(call 'parse-symbol 'rax 'rbx)
-                       (assign (reg rax) (reg ret))
-                       ,@(call 'car 'rax)
-                       (assign (reg rbx) (reg ret))
-                       ,@(call 'cdr 'rax)
-                       (assign (reg rax) (reg ret)))
-                     #:max-num-pairs max-num-pairs)))
-      (reset-machine machine)
-      (write-memory (get-machine-memory machine)
-                    read-buffer-offset
-                    (map char->integer exp))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rax))
-        (+ read-buffer-offset test-case-parsed-count))
-      (test-eqv (logand tag-mask
-                        (get-register-contents (get-machine-register machine rbx)))
-        symbol-tag)))
-  '("a"
-    "a0"
-    "a-0"
-    ("a0)" 2)
-    ("a0 " 2))))
+(for-each
+ (lambda (test-case)
+   (let ((test-case-str
+          (if (pair? test-case)
+              (car test-case)
+              test-case)))
+     (test-group
+      (format #f "read--parse-symbol--success-'~a'" test-case-str)
+      (let* ((test-case-parsed-count
+              (if (pair? test-case)
+                  (cadr test-case)
+                  (string-length test-case)))
+             (exp (string->list test-case-str))
+             (max-num-pairs 128)
+             (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+             (machine (make-test-machine
+                       `((assign (reg rax) (const ,read-buffer-offset))
+                         (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                         ,@(call 'parse-symbol 'rax 'rbx)
+                         (assign (reg rax) (reg ret))
+                         ,@(call 'car 'rax)
+                         (assign (reg rbx) (reg ret))
+                         ,@(call 'cdr 'rax)
+                         (assign (reg rax) (reg ret)))
+                       #:max-num-pairs max-num-pairs)))
+        (reset-machine machine)
+        (write-memory (get-machine-memory machine)
+                      read-buffer-offset
+                      (map char->integer exp))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rax))
+          (+ read-buffer-offset test-case-parsed-count))
+        (test-eqv (logand tag-mask
+                          (get-register-contents (get-machine-register machine rbx)))
+          symbol-tag)))))
+ '("a"
+   "a0"
+   "a-0"
+   ("a0)" 2)
+   ("a0 " 2)))
 
-(test-group
- "read--parse-symbol--failures"
- (for-each
-  (lambda (test-case-str)
+(for-each
+ (lambda (test-case-str)
+   (test-group
+    (format #f "read--parse-symbol--failure-'~a'" test-case-str)
     (let* ((exp (string->list test-case-str))
            (machine (make-test-machine
                      `((assign (reg rax) (const ,test-read-buffer-offset))
@@ -2733,8 +2734,8 @@ array."
                     (map char->integer exp))
       (continue-machine machine)
       (test-eqv (get-register-contents (get-machine-register machine rax))
-        parse-failed-value)))
-  '("" "8" "8a")))
+        parse-failed-value))))
+ '("" "8" "8a"))
 
 (test-group
  "read--parse-exp--symbol-list"
