@@ -1750,7 +1750,23 @@ array."
     (assign (reg rcx) (reg ret))        ; Parameter count
     ,@(call 'cadr 'rax)
     (assign (reg rax) (reg ret))        ; Label
-    ;; TODO: reverse arguments list
+    ;; NOTE: we need to reverse the argument list here to ensure they
+    ;; get pushed to the stack in the correct order. This is
+    ;; inefficient, but necessary as a lambda requires the arguments
+    ;; to be in the 'correct' order (to match up with the order of the
+    ;; parsed formals list. Possible ways around this include:
+    ;;
+    ;;   1. Have EVAL determine whether the application is a lambda or
+    ;;   primitive and construct the argument list in the
+    ;;   corresponding order. This breaks the clear separation of
+    ;;   concerns between EVAL and APPLY somewhat.
+    ;;
+    ;;   2. Write the arguments to the stack directly to memory,
+    ;;   instead of using the STACK-PUSH instruction. This operation
+    ;;   would need to be provided by the virtual machine to handle
+    ;;   the STACK-LIMIT option.
+    ,@(call 'reverse 'rbx)
+    (assign (reg rbx) (reg ret))
     (assign (reg rdx) (const 0))        ; Count of pushed args
 
     apply-primitive-test
@@ -3456,7 +3472,7 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--primitive-cons"
- (test-eval '(cons 1 2) '(2 . 1) #:trace #t))
+ (test-eval '(cons 1 2) '(1 . 2)))
 
 (test-group
  "lib--reverse--empty-list"
