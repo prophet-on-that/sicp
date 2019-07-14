@@ -96,13 +96,13 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define predefined-symbols
   '("#f"
     "#t"
-    "error:assoc:not-found"
-    "error:unbound-variable"
-    "error:cannot-set-unbound-variable"
-    "error:eval:unknown-exp-type"
-    "error:eval:lambda-syntax"
-    "error:eval:application-syntax"
-    "error:eval:wrong-type-to-apply"
+    "err:assoc:not-found"
+    "err:unbound-variable"
+    "err:cannot-set-unbound-variable"
+    "err:eval:unknown-exp-type"
+    "err:eval:lambda-syntax"
+    "err:eval:application-syntax"
+    "err:eval:wrong-type-to-apply"
     "if"
     "lambda"
     "cons"))
@@ -1079,7 +1079,7 @@ array."
     (ret)
 
     assoc-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "error:assoc:not-found")))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "err:assoc:not-found")))
     (assign (reg rbx) (const ,empty-list))
     ,@(call 'cons 'rax 'rbx)
     (assign (reg rax) (reg ret))
@@ -1149,7 +1149,7 @@ array."
 
     lookup-in-frame-error
     ,@(call-list
-       (get-predefined-symbol-value "error:unbound-variable")
+       (get-predefined-symbol-value "err:unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rcx))
@@ -1210,7 +1210,7 @@ array."
 
     set-in-frame!-error
     ,@(call-list
-       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1306,7 +1306,7 @@ array."
     (ret)
 
     lookup-in-env-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "error:unbound-variable")))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "err:unbound-variable")))
     (assign (reg rbx) (const ,empty-list))
     ,@(call 'cons 'rax 'rbx)
     (assign (reg rax) (reg ret))
@@ -1346,7 +1346,7 @@ array."
 
     set-in-env!-error
     ,@(call-list
-       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1590,7 +1590,7 @@ array."
 
     eval-error-application-syntax
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:application-syntax")
+       (get-predefined-symbol-value "err:eval:application-syntax")
        'rax)
     (goto (label eval-error))
 
@@ -1606,13 +1606,13 @@ array."
 
     eval-unknown-exp
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:unknown-exp-type")
+       (get-predefined-symbol-value "err:eval:unknown-exp-type")
        'rax)
     (goto (label eval-error))
 
     eval-error-lambda-syntax
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:lambda-syntax")
+       (get-predefined-symbol-value "err:eval:lambda-syntax")
        'rax)
     (goto (label eval-error))
 
@@ -1719,7 +1719,7 @@ array."
 
     apply-error
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:wrong-type-to-apply")
+       (get-predefined-symbol-value "err:eval:wrong-type-to-apply")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -3314,31 +3314,31 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--if--no-args"
- (test-eval-error '(if) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--no-consequent"
- (test-eval-error '(if #t) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--too-many-args"
- (test-eval-error '(if #t 0 1 2) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 1 2) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-consequent"
- (test-eval-error '(if #t . 0) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t . 0) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-alternative"
- (test-eval-error '(if #t 0 . 1) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 . 1) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--propagated-predicate-error"
- (test-eval-error '(if x 1 1) "error:unbound-variable"))
+ (test-eval-error '(if x 1 1) "err:unbound-variable"))
 
 (test-group
  "eval--if--propagated-predicate-error-no-alternative"
- (test-eval-error '(if x 1) "error:unbound-variable"))
+ (test-eval-error '(if x 1) "err:unbound-variable"))
 
 (test-group
  "eval--lambda--valid-empty-formals"
@@ -3356,27 +3356,27 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--lambda--error-no-formals-or-body"
- (test-eval-error '(lambda) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-no-body"
- (test-eval-error '(lambda ()) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda ()) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-symbol-formals"
- (test-eval-error '(lambda 0 #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda 0 #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-formals"
- (test-eval-error '(lambda (a . b) #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda (a . b) #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-body"
- (test-eval-error '(lambda () . #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda () . #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-body-multiple-statements"
- (test-eval-error '(lambda () #f . #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda () #f . #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--apply--lambda-no-args"
@@ -3400,19 +3400,19 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--error-non-function"
- (test-eval-error '(1) "error:eval:wrong-type-to-apply"))
+ (test-eval-error '(1) "err:eval:wrong-type-to-apply"))
 
 (test-group
  "eval--apply--lambda-error-first-argument"
- (test-eval-error '((lambda (x) x) x) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) x) x) "err:unbound-variable"))
 
 (test-group
  "eval--apply--lambda-error-second-argument"
- (test-eval-error '((lambda (x) x) 1 x) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) x) 1 x) "err:unbound-variable"))
 
 (test-group
  "eval--apply--lambda-error-body"
- (test-eval-error '((lambda (x) y)) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) y)) "err:unbound-variable"))
 
 ;;; TODO: apply
 ;;; Catch errors with wrong numbers of params
