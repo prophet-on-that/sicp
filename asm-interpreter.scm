@@ -104,9 +104,11 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "err:eval:application-syntax"
     "err:eval:wrong-type-to-apply"
     "err:apply:wrong-number-of-args"
+    "err:+:non-numeric-arg"
     "if"
     "lambda"
-    "cons"))
+    "cons"
+    "+"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -134,6 +136,8 @@ array."
     (if (number? index)
         (logior symbol-tag index)
         (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
+
+(define var-args-param-count -1)
 
 (define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f) (init-symbol-trie? #t))
   "INIT-SYMBOL-TRIE? can be set to false for testing, as it initialises a pair "
@@ -1370,18 +1374,36 @@ array."
     get-initial-env
     (stack-push (reg rax))
     (stack-push (reg rbx))
-    ,@(call-list
-       (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t")
-       (get-predefined-symbol-value "cons"))
+    (stack-push (reg rcx))
+    (assign (reg rax) (const ,empty-list)) ; Symbols
+    (assign (reg rbx) (const ,empty-list)) ; Values
+    ;; #f
+    ,@(call 'cons (get-predefined-symbol-value "#f") 'rax)
     (assign (reg rax) (reg ret))
-    (assign (reg rbx) (label cons))
-    ,@(call 'make-primitive 2 'rbx)
-    ,@(call-list
-       (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t")
-       'ret)
-    ,@(call 'extend-env 'rax 'ret empty-list) ; TODO: TCO
+    ,@(call 'cons (get-predefined-symbol-value "#f") 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; #t
+    ,@(call 'cons (get-predefined-symbol-value "#t") 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cons (get-predefined-symbol-value "#t") 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; cons
+    ,@(call 'cons (get-predefined-symbol-value "cons") 'rax)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (label cons))
+    ,@(call 'make-primitive 2 'rcx)
+    ,@(call 'cons 'ret 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; +
+    ,@(call 'cons (get-predefined-symbol-value "+") 'rax)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (label prim-+))
+    ,@(call 'make-primitive var-args-param-count 'rcx)
+    ,@(call 'cons 'ret 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; Extend env
+    ,@(call 'extend-env 'rax 'rbx empty-list) ; TODO: TCO
+    (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
@@ -1781,8 +1803,20 @@ array."
     (goto (label apply-primitive-test))
 
     apply-primitive-continue
+    ;; If the arg count equals VAR-ARGS-PARAM-COUNT, pass the number of
+    ;; args as the first argument. Else, assert that the pushed arg
+    ;; count equals the required number of args.
+    (test (op =) (reg rcx) (const ,var-args-param-count))
+    (jne (label apply-primitive-handle-var-args))
     (test (op =) (reg rdx) (reg rcx))
     (jez (label apply-primitive-arg-count-error))
+    (goto (label apply-primitive-call-prim))
+
+    apply-primitive-handle-var-args
+    (stack-push (reg rdx))
+    (goto (label apply-primitive-call-prim))
+
+    apply-primitive-call-prim
     (call (reg rax))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
@@ -1836,6 +1870,46 @@ array."
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
+
+    ;; Args:
+    ;; 0 - Number of other arguments to the function
+    ;; * - Values to add
+    prim-+
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Number of arguments to process
+    (assign (reg rbx) (const 0))        ; Running sum
+
+    prim-+-test
+    (test (op >) (reg rax) (const 0))
+    (jez (label prim-+-continue))
+    (mem-load (reg rcx) (op +) (reg bp) (const 2) (reg rax))
+    (assign (reg rdx) (op logand) (reg rcx) (const ,tag-mask))
+    (test (op =) (reg rdx) (const ,number-tag))
+    (jez (label prim-+-not-a-number))
+    (assign (reg rcx) (op logand) (reg rcx) (const ,value-mask)) ; Extract numeric value
+    (assign (reg rbx) (op +) (reg rbx) (reg rcx))
+    (assign (reg rax) (op -) (reg rax) (const 1))
+    (goto (label prim-+-test))
+
+    prim-+-continue
+    (assign (reg ret) (op logior) (const ,number-tag) (reg rbx))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    prim-+-not-a-number
+    ,@(call-list
+       (get-predefined-symbol-value "err:+:non-numeric-arg")
+       'rcx)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     _start))
 
@@ -3485,11 +3559,31 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--primitive-too-few-arguments"
- (test-eval-error '((cons 1)) "err:apply:wrong-number-of-args"))
+ (test-eval-error '(cons 1) "err:apply:wrong-number-of-args"))
 
 (test-group
  "eval--apply--primitive-too-many-arguments"
- (test-eval-error '((cons 1 2 3)) "err:apply:wrong-number-of-args"))
+ (test-eval-error '(cons 1 2 3) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--primitive-error-first-arg"
+ (test-eval-error '(cons x 2) "err:unbound-variable"))
+
+(test-group
+ "eval--apply--primitive-error-second-arg"
+ (test-eval-error '(cons 1 y) "err:unbound-variable"))
+
+(test-group
+ "eval--apply--primitive-plus-no-args"
+ (test-eval '(+) 0))
+
+(test-group
+ "eval--apply--primitive-plus-multiple-args"
+ (test-eval '(+ 1 2 3) 6))
+
+(test-group
+ "eval--apply--primitive-plus-invalid-arg"
+ (test-eval-error '(+ 1 #f 3) "err:+:non-numeric-arg"))
 
 (test-group
  "lib--reverse--empty-list"
