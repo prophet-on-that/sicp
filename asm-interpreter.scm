@@ -1754,6 +1754,8 @@ array."
     (assign (reg rax) (reg ret))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))        ; Formals
+    ,@(call 'are-equal-length-lists? 'rcx 'rbx)
+    (jez (label apply-lambda-arg-count-error))
     ,@(call 'cdr 'rax)
     (assign (reg rax) (reg ret))
     ,@(call 'car 'rax)
@@ -1765,6 +1767,16 @@ array."
     (assign (reg rax) (reg rdx))
     (stack-pop (reg rdx))
     (goto (label eval-exp-list-entry))  ; TCO
+
+    apply-lambda-arg-count-error
+    ,@(call-list
+       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
+       'rcx                             ; Expected
+       'rbx)                            ; Actual
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     apply-primitive
     ,@(call 'cdr 'rax)
@@ -1867,6 +1879,34 @@ array."
     reverse-empty-list
     (assign (reg ret) (const ,empty-list))
     (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Test for equality of the length of two lists.
+    are-equal-length-lists?
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    are-equal-length-lists?-test
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label are-equal-length-lists?-base-case))
+    ,@(call 'pair? 'rax)
+    (jez (label are-equal-length-lists?-end))
+    ,@(call 'pair? 'rbx)
+    (jez (label are-equal-length-lists?-end))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label are-equal-length-lists?-test))
+
+    are-equal-length-lists?-base-case
+    (test (op =) (reg rbx) (const ,empty-list))
+
+    are-equal-length-lists?-end
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
@@ -3547,10 +3587,17 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--lambda-error-body"
- (test-eval-error '((lambda (x) y)) "err:unbound-variable"))
+ (test-eval-error '((lambda (x) y) 1) "err:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-error-too-many-args"
+ (test-eval-error '((lambda () 1) 1) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--lambda-error-too-few-args"
+ (test-eval-error '((lambda (x y) y) 1) "err:apply:wrong-number-of-args"))
 
 ;;; TODO: apply
-;;; Catch errors with wrong numbers of params
 ;;; Test multiple statements
 
 (test-group
@@ -3621,3 +3668,48 @@ EVAL for magic value not accessible to the programmer"
           #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--empty-lists"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call 'are-equal-length-lists? empty-list empty-list))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--equal-lists"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            (assign (reg rax) (reg ret))
+            ,@(call-list 2 3)
+            ,@(call 'are-equal-length-lists? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--pair-empty"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'are-equal-length-lists? 'ret empty-list))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "lib--are-equal-length-lists?--empty-pair"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'are-equal-length-lists? empty-list 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
