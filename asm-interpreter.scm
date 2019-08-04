@@ -1716,7 +1716,7 @@ array."
     ,@(call 'car 'rax)
     (assign (reg rax) (reg ret))
     (stack-push (reg rdx))
-    (goto (label eval-entry))           ; TODO
+    (goto (label eval-entry))           ; TCO
 
     ;; Args:
     ;; 0 - Lambda or primitive
