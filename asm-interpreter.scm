@@ -103,6 +103,7 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "err:eval:lambda-syntax"
     "err:eval:application-syntax"
     "err:eval:wrong-type-to-apply"
+    "err:apply:wrong-number-of-args"
     "if"
     "lambda"
     "cons"))
@@ -1790,7 +1791,15 @@ array."
     (ret)
 
     apply-primitive-arg-count-error
-    ;; TODO
+    ,@(call-list
+       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
+       ;; TODO: add primitive symbol to output
+       'rdx                             ; Expected
+       'rcx)                            ; Actual
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     ;; Args:
     ;; 0 - list ot reverse
@@ -3473,6 +3482,14 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--apply--primitive-cons"
  (test-eval '(cons 1 2) '(1 . 2)))
+
+(test-group
+ "eval--apply--primitive-too-few-arguments"
+ (test-eval-error '((cons 1)) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--primitive-too-many-arguments"
+ (test-eval-error '((cons 1 2 3)) "err:apply:wrong-number-of-args"))
 
 (test-group
  "lib--reverse--empty-list"
