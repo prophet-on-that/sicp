@@ -3621,15 +3621,15 @@ EVAL for magic value not accessible to the programmer"
  (test-eval-error '(cons 1 y) "err:unbound-variable"))
 
 (test-group
- "eval--apply--primitive-plus-no-args"
+ "eval--apply--primitive-+-no-args"
  (test-eval '(+) 0))
 
 (test-group
- "eval--apply--primitive-plus-multiple-args"
+ "eval--apply--primitive-+-multiple-args"
  (test-eval '(+ 1 2 3) 6))
 
 (test-group
- "eval--apply--primitive-plus-invalid-arg"
+ "eval--apply--primitive-+-invalid-arg"
  (test-eval-error '(+ 1 #f 3) "err:+:non-numeric-arg"))
 
 (test-group
