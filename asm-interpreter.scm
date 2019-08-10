@@ -2002,10 +2002,10 @@ array."
 
 (define (range min max)
   "Integer range between MIN (inclusive) and MAX (exclusive)."
-  (if (>= min max)
-      '()
-      (cons min
-            (range (1+ min) max))))
+  (map
+   (lambda (n)
+     (+ n min))
+   (iota (- max min))))
 
 (define (render-trace-value obj)
   (cond ((number? obj)
