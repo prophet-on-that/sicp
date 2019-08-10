@@ -134,7 +134,14 @@
                                (number? b))
                           (logand a b)
                           0)))
-              (list 'logior logior)))
+              (list 'logior logior)
+              (list 'set-trace
+                    (lambda (machine level)
+                      (set-machine-trace-all
+                       machine
+                       (cond ((= level 1) 'function-calls)
+                             ((= level 2) 'full)
+                             (else #f)))))))
         (trace #f)
         (call-stack-depth 0))
 
@@ -409,8 +416,8 @@
          (make-jne inst machine labels))
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels))
-        ;; ((eq? (car inst) 'perform)
-        ;;  #f)
+        ((eq? (car inst) 'perform)
+         (make-perform inst machine labels))
         ((eq? (car inst) 'mem-store)
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
@@ -540,6 +547,37 @@
 
 (define (test-condition test-instruction)
   (cdr test-instruction))
+
+;;; Perform
+
+(define (make-action exp machine labels)
+  (let ((op (lookup-machine-prim machine (action-exp-action exp)))
+        (aprocs
+         (map (lambda (e)
+                (if (label-exp? e)
+                    (error "Unexpected label expression -- ASSEMBLE" e)
+                    (make-primitive-exp e machine labels)))
+              (action-exp-operands exp))))
+    (lambda ()
+      (apply op (cons machine (map (lambda (p) (p)) aprocs))))))
+
+(define (action-exp-action operation-exp)
+  (car operation-exp))
+
+(define (action-exp-operands operation-exp)
+  (cdr operation-exp))
+
+(define (make-perform inst machine labels)
+  (let ((action (perform-action inst)))
+    (let ((action-proc
+           (make-action action machine labels))
+          (pc (get-machine-register machine 'pc)))
+      (lambda ()
+        (action-proc)
+        (advance-pc pc)))))
+
+(define (perform-action inst)
+  (cdr inst))
 
 ;;; Jez
 
