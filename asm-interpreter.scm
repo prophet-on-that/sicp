@@ -108,7 +108,9 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "if"
     "lambda"
     "cons"
-    "+"))
+    "+"
+    "ok"
+    "set!"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1517,6 +1519,8 @@ array."
     (jne (label eval-if))
     (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "lambda")))
     (jne (label eval-lambda))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "set!")))
+    (jne (label eval-set!))
     (goto (label eval-application))
 
     eval-number
@@ -1717,6 +1721,30 @@ array."
     (assign (reg rax) (reg ret))
     (stack-push (reg rdx))
     (goto (label eval-entry))           ; TCO
+
+    eval-set!
+    ,@(call 'cdr 'rax)                  ; The CDR of EXP
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; The variable to set
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)                  ; The value expression
+    ,@(call 'eval 'ret 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error? 'rax)
+    (jne (label eval-set!-error))
+    ,@(call 'set-in-env! 'rcx 'rax 'rbx)
+    (assign (reg ret) (const ,(get-predefined-symbol-value "ok")))
+    (goto (label eval-end))
+
+    eval-set!-error
+    (assign (reg ret) (reg rax))
+    (goto (label eval-end))
 
     ;; Args:
     ;; 0 - Lambda or primitive
@@ -3631,6 +3659,33 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "eval--apply--primitive-+-invalid-arg"
  (test-eval-error '(+ 1 #f 3) "err:+:non-numeric-arg"))
+
+(test-group
+ "eval--set!--constant"
+ (test-eval
+  '((lambda (x)
+      (set! x 2)
+      x)
+    1)
+  2))
+
+(test-group
+ "eval--set!--application"
+ (test-eval
+  '((lambda (x)
+      (set! x (+ x 1))
+      x)
+    1)
+  2))
+
+(test-group
+ "eval--set!--error"
+ (test-eval-error
+  '((lambda (x)
+      (set! x y)
+      x)
+    1)
+  "err:unbound-variable"))
 
 (test-group
  "lib--reverse--empty-list"
