@@ -1702,6 +1702,7 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
+    (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
@@ -1713,14 +1714,24 @@ array."
     (jne (label eval-exp-list-last-exp))
     ,@(call 'car 'rax)
     ,@(call 'eval 'ret 'rbx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
+    (jne (label eval-exp-list-error))
     (assign (reg rax) (reg rcx))
     (goto (label eval-exp-list-test))
 
     eval-exp-list-last-exp
     ,@(call 'car 'rax)
     (assign (reg rax) (reg ret))
-    (stack-push (reg rdx))
     (goto (label eval-entry))           ; TCO
+
+    eval-exp-list-error
+    (assign (reg ret) (reg rdx))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
 
     eval-set!
     ,@(call 'cdr 'rax)                  ; The CDR of EXP
@@ -1793,7 +1804,6 @@ array."
     ,@(call 'extend-env 'rcx 'rbx 'rax)
     (assign (reg rbx) (reg ret))        ; Updated environment
     (assign (reg rax) (reg rdx))
-    (stack-pop (reg rdx))
     (goto (label eval-exp-list-entry))  ; TCO
 
     apply-lambda-arg-count-error
