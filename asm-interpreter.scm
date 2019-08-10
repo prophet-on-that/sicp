@@ -43,7 +43,7 @@
 
 ;;; Exit codes
 (define error-car-of-non-pair 1)
-(define error-cdr-of-non-pair 1)
+(define error-cdr-of-non-pair 2)
 (define error-set-car-of-non-pair 3)
 (define error-set-cdr-of-non-pair 4)
 (define error-no-remaining-pairs 5)
