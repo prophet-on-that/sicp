@@ -3660,6 +3660,15 @@ EVAL for magic value not accessible to the programmer"
   "err:unbound-variable"))
 
 (test-group
+ "eval--apply--lambda-closure"
+ (test-eval
+  '(((lambda (x)
+       (lambda (y)
+         x))
+     1) 2)
+  1))
+
+(test-group
  "eval--apply--primitive-cons"
  (test-eval '(cons 1 2) '(1 . 2)))
 
