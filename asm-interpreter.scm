@@ -1868,6 +1868,8 @@ array."
 
     apply-primitive-call-prim
     (call (reg rax))
+    ;; Reset stack pointer to clear unpopped primitive call arguments
+    (assign (reg sp) (op -) (reg bp) (const 4))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
