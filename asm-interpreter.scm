@@ -3491,6 +3491,10 @@ EVAL for magic value not accessible to the programmer"
  (test-eval #f #f))
 
 (test-group
+ "eval--symbol--error"
+ (test-eval-error 'y "err:unbound-variable"))
+
+(test-group
  "eval--error--unknown-exp-type"
  (let* ((machine
          (make-test-machine
@@ -3637,8 +3641,23 @@ EVAL for magic value not accessible to the programmer"
  "eval--apply--lambda-error-too-few-args"
  (test-eval-error '((lambda (x y) y) 1) "err:apply:wrong-number-of-args"))
 
-;;; TODO: apply
-;;; Test multiple statements
+(test-group
+ "eval--apply--lambda-non-final-statement-error"
+ (test-eval-error
+  '((lambda (x)
+      y
+      1)
+    1)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-final-statement-error"
+ (test-eval-error
+  '((lambda (x)
+      1
+      y)
+    1)
+  "err:unbound-variable"))
 
 (test-group
  "eval--apply--primitive-cons"
