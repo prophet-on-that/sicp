@@ -35,14 +35,15 @@
 (define new-cars-pointer 3)
 (define new-cdrs-pointer 4)
 (define read-buffer-pointer 5)
-(define symbol-list 6)
+(define symbol-trie-root 6)
+(define symbol-counter 7)
 (define char-table-offset 8)
 (define char-table-size 128)
 (define the-cars-offset (+ char-table-offset char-table-size))
 
 ;;; Exit codes
 (define error-car-of-non-pair 1)
-(define error-cdr-of-non-pair 1)
+(define error-cdr-of-non-pair 2)
 (define error-set-car-of-non-pair 3)
 (define error-set-cdr-of-non-pair 4)
 (define error-no-remaining-pairs 5)
@@ -95,16 +96,23 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define predefined-symbols
   '("#f"
     "#t"
-    "error:assoc:not-found"
-    "error:unbound-variable"
-    "error:cannot-set-unbound-variable"
-    "error:eval:unknown-exp-type"
-    "error:eval:lambda-syntax"
-    "error:eval:application-syntax"
-    "error:eval:wrong-type-to-apply"
+    "err:assoc:not-found"
+    "err:unbound-variable"
+    "err:cannot-set-unbound-variable"
+    "err:eval:unknown-exp-type"
+    "err:eval:lambda-syntax"
+    "err:eval:application-syntax"
+    "err:eval:wrong-type-to-apply"
+    "err:apply:wrong-number-of-args"
+    "err:+:non-numeric-arg"
     "if"
     "lambda"
-    "cons"))
+    "cons"
+    "+"
+    "ok"
+    "set!"
+    "define"
+    "begin"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -133,7 +141,10 @@ array."
         (logior symbol-tag index)
         (error "Unknown symbol -- GET-PREDEFINED-SYMBOL-VALUE" symbol-str))))
 
-(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f))
+(define var-args-param-count -1)
+
+(define* (init num-registers max-num-pairs memory-size #:key (runtime-checks? #f) (init-symbol-trie? #t))
+  "INIT-SYMBOL-TRIE? can be set to false for testing, as it initialises a pair "
   `(
     (alias ,ret ret)
     (alias ,rax rax)
@@ -165,8 +176,13 @@ array."
     (mem-store (const ,read-buffer-pointer) (reg rax))
 
     ;; Initalise symbol list
-    (assign (reg rax) (const ,empty-list))
-    (mem-store (const ,symbol-list) (reg rax))
+    ,@(if init-symbol-trie?
+          `((call (label new-trie-item))
+            (mem-store (const ,symbol-trie-root) (reg ret)))
+          '())
+
+    ;; Initialise symbol counter
+    (mem-store (const ,symbol-counter) (const 0))
 
     ;; Initialise char table. For parsing expressions, we store an
     ;; integer for each character representing the various character
@@ -413,8 +429,8 @@ array."
          `(stack-push (reg ,i)))
        (range 0 num-registers))
     (mem-store (const ,free-pair-pointer) (const 0))
-    ;; Relocate SYMBOL-LIST
-    (assign (reg rax) (const ,symbol-list))
+    ;; Relocate SYMBOL-TRIE-ROOT
+    (assign (reg rax) (const ,symbol-trie-root))
     ,@(call 'gc-relocate-pair 'rax)
     ;; Relocate all pairs on stack
     (assign (reg rax) (reg sp))         ; Stack index pointer
@@ -575,51 +591,86 @@ array."
     (stack-pop (reg rax))
     (ret)
 
+    ;; Interning symbols
+
+    ;; Output: a new trie item, represented as a pair, consisting of
+    ;; an alist of (symbol, trie item) pairs and an optional symbol
+    ;; identifier. A lack of symbol is represented with the constant
+    ;; 0.
+    new-trie-item
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (assign (reg rax) (const ,empty-list))
+    (assign (reg rbx) (const 0))
+    (goto (label cons-entry))
+
     ;; Args:
     ;; 0 - list holding the parsed characters of the symbol
     ;; Output: the value uniquely identifying the symbol
     ;;
-    ;; A symbol is identified by its index in SYMBOL-LIST.
+    ;; Symbols are held in a trie data structure, the root of which
+    ;; can be accessed from SYMBOL-TRIE-ROOT.
     intern-symbol
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
     (stack-push (reg rdx))
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
-    (mem-load (reg rbx) (const ,symbol-list))
-    (test (op =) (reg rbx) (const ,empty-list))
-    (jne (label intern-symbol-empty-list))
-    (assign (reg rcx) (const 0))        ; Index in SYMBOL-LIST
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Symbol character list
+    (mem-load (reg rbx) (const ,symbol-trie-root)) ; The current trie item
 
     intern-symbol-test
-    ,@(call 'car 'rbx)
-    ,@(call 'equal? 'rax 'ret)
-    (jne (label intern-symbol-found))
-    (assign (reg rcx) (op +) (reg rcx) (const 1))
-    ,@(call 'cdr 'rbx)
-    (test (op =) (reg ret) (const ,empty-list))
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label intern-symbol-continue))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; Current character
+    ,@(call 'car 'rbx)                  ; Character-trie item alist
+    ,@(call 'assoc 'rcx 'ret)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
     (jne (label intern-symbol-not-found))
+    ,@(call 'cdr 'rdx)
     (assign (reg rbx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
     (goto (label intern-symbol-test))
 
-    intern-symbol-empty-list
-    ;; Set SYMBOL-LIST to a singleton list
-    (assign (reg rdx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rdx)
-    (mem-store (const ,symbol-list) (reg ret))
-    (assign (reg ret) (op logior) (const 0) (const ,symbol-tag))
+    ;; At this point, there exists at least one character to be
+    ;; appended to the trie.
+    intern-symbol-not-found
+    (call (label new-trie-item))
+    (assign (reg rdx) (reg ret))
+    ,@(call 'car 'rbx)                  ; Character-trie item alist
+    ,@(call 'acons 'rcx 'rdx 'ret)
+    ,@(call 'set-car! 'rbx 'ret)
+    (assign (reg rbx) (reg rdx))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label intern-symbol-continue))
+    (assign (reg rax) (reg ret))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    (goto (label intern-symbol-not-found))
+
+    ;; At this point, the character list is empty and the current trie
+    ;; item holds/will hold the symbol to be returned.
+    intern-symbol-continue
+    ,@(call 'cdr 'rbx)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (op logand) (reg rax) (const ,tag-mask))
+    (test (op =) (reg rcx) (const ,symbol-tag))
+    (jne (label intern-symbol-found))
+    (mem-load (reg rax) (const ,symbol-counter))
+    (assign (reg rcx) (op logior) (const ,symbol-tag) (reg rax))
+    ,@(call 'set-cdr! 'rbx 'rcx)
+    (assign (reg rax) (op +) (reg rax) (const 1))
+    (mem-store (const ,symbol-counter) (reg rax))
+    (assign (reg ret) (reg rcx))
     (goto (label intern-symbol-end))
 
     intern-symbol-found
-    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
-    (goto (label intern-symbol-end))
-
-    intern-symbol-not-found
-    ;; Add the symbol to the end of SYMBOL-LIST
-    (assign (reg rdx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rdx)
-    ,@(call 'set-cdr! 'rbx 'ret)
-    (assign (reg ret) (op logior) (reg rcx) (const ,symbol-tag))
+    (assign (reg ret) (reg rax))
 
     intern-symbol-end
     (stack-pop (reg rdx))
@@ -1037,7 +1088,7 @@ array."
     (ret)
 
     assoc-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "error:assoc:not-found")))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "err:assoc:not-found")))
     (assign (reg rbx) (const ,empty-list))
     ,@(call 'cons 'rax 'rbx)
     (assign (reg rax) (reg ret))
@@ -1107,7 +1158,7 @@ array."
 
     lookup-in-frame-error
     ,@(call-list
-       (get-predefined-symbol-value "error:unbound-variable")
+       (get-predefined-symbol-value "err:unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rcx))
@@ -1168,7 +1219,7 @@ array."
 
     set-in-frame!-error
     ,@(call-list
-       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1264,7 +1315,7 @@ array."
     (ret)
 
     lookup-in-env-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "error:unbound-variable")))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "err:unbound-variable")))
     (assign (reg rbx) (const ,empty-list))
     ,@(call 'cons 'rax 'rbx)
     (assign (reg rax) (reg ret))
@@ -1304,7 +1355,7 @@ array."
 
     set-in-env!-error
     ,@(call-list
-       (get-predefined-symbol-value "error:cannot-set-unbound-variable")
+       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1327,18 +1378,36 @@ array."
     get-initial-env
     (stack-push (reg rax))
     (stack-push (reg rbx))
-    ,@(call-list
-       (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t")
-       (get-predefined-symbol-value "cons"))
+    (stack-push (reg rcx))
+    (assign (reg rax) (const ,empty-list)) ; Symbols
+    (assign (reg rbx) (const ,empty-list)) ; Values
+    ;; #f
+    ,@(call 'cons (get-predefined-symbol-value "#f") 'rax)
     (assign (reg rax) (reg ret))
-    (assign (reg rbx) (label cons))
-    ,@(call 'make-primitive 2 'rbx)
-    ,@(call-list
-       (get-predefined-symbol-value "#f")
-       (get-predefined-symbol-value "#t")
-       'ret)
-    ,@(call 'extend-env 'rax 'ret empty-list) ; TODO: TCO
+    ,@(call 'cons (get-predefined-symbol-value "#f") 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; #t
+    ,@(call 'cons (get-predefined-symbol-value "#t") 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cons (get-predefined-symbol-value "#t") 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; cons
+    ,@(call 'cons (get-predefined-symbol-value "cons") 'rax)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (label cons))
+    ,@(call 'make-primitive 2 'rcx)
+    ,@(call 'cons 'ret 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; +
+    ,@(call 'cons (get-predefined-symbol-value "+") 'rax)
+    (assign (reg rax) (reg ret))
+    (assign (reg rcx) (label prim-+))
+    ,@(call 'make-primitive var-args-param-count 'rcx)
+    ,@(call 'cons 'ret 'rbx)
+    (assign (reg rbx) (reg ret))
+    ;; Extend env
+    ,@(call 'extend-env 'rax 'rbx empty-list) ; TODO: TCO
+    (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
@@ -1424,7 +1493,8 @@ array."
 
     ;; Args:
     ;; 0 - expression to evaluate
-    ;; 1 - environment in which to evaluate the expression
+    ;; 1 - environment in which to evaluate the expression. PRE:
+    ;; non-empty.
     ;; Output: result of the evaluation, or an error
     eval
     (stack-push (reg rax))
@@ -1452,6 +1522,12 @@ array."
     (jne (label eval-if))
     (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "lambda")))
     (jne (label eval-lambda))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "set!")))
+    (jne (label eval-set!))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "define")))
+    (jne (label eval-define))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "begin")))
+    (jne (label eval-begin))
     (goto (label eval-application))
 
     eval-number
@@ -1548,7 +1624,7 @@ array."
 
     eval-error-application-syntax
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:application-syntax")
+       (get-predefined-symbol-value "err:eval:application-syntax")
        'rax)
     (goto (label eval-error))
 
@@ -1563,14 +1639,16 @@ array."
     (goto (label make-error-entry))     ; TCO
 
     eval-unknown-exp
+    ;; TODO: use expression passed to eval instead of RAX, which may
+    ;; have been modified.
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:unknown-exp-type")
+       (get-predefined-symbol-value "err:eval:unknown-exp-type")
        'rax)
     (goto (label eval-error))
 
     eval-error-lambda-syntax
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:lambda-syntax")
+       (get-predefined-symbol-value "err:eval:lambda-syntax")
        'rax)
     (goto (label eval-error))
 
@@ -1633,6 +1711,7 @@ array."
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (stack-push (reg rcx))
+    (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
@@ -1644,14 +1723,93 @@ array."
     (jne (label eval-exp-list-last-exp))
     ,@(call 'car 'rax)
     ,@(call 'eval 'ret 'rbx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'is-error? 'rdx)
+    (jne (label eval-exp-list-error))
     (assign (reg rax) (reg rcx))
     (goto (label eval-exp-list-test))
 
     eval-exp-list-last-exp
     ,@(call 'car 'rax)
     (assign (reg rax) (reg ret))
-    (stack-push (reg rdx))
-    (goto (label eval-entry))           ; TODO
+    (goto (label eval-entry))           ; TCO
+
+    eval-exp-list-error
+    (assign (reg ret) (reg rdx))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    eval-set!
+    ,@(call 'cdr 'rax)                  ; The CDR of EXP
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; The variable to set
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (test (op =) (reg rdx) (const ,symbol-tag))
+    (jez (label eval-unknown-exp))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)                  ; The value expression
+    (assign (reg rdx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jez (label eval-unknown-exp))
+    ,@(call 'eval 'rdx 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error? 'rax)
+    (jne (label eval-set!-error))
+    ,@(call 'set-in-env! 'rcx 'rax 'rbx)
+    (assign (reg ret) (const ,(get-predefined-symbol-value "ok")))
+    (goto (label eval-end))
+
+    eval-set!-error
+    (assign (reg ret) (reg rax))
+    (goto (label eval-end))
+
+    ;; TODO: support lambda definition syntax
+    eval-define
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))        ; CDR of EXP
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; The variable to define
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (test (op =) (reg rdx) (const ,symbol-tag))
+    (jez (label eval-unknown-exp))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rdx) (reg ret))        ; The value expression
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jez (label eval-unknown-exp))
+    ,@(call 'eval 'rdx 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error? 'rax)
+    (jne (label eval-define-error))
+    ,@(call 'car 'rbx)                  ; We assume the env has at least one frame
+    ,@(call 'add-frame-binding! 'rcx 'rax 'ret)
+    (assign (reg ret) (const ,(get-predefined-symbol-value "ok")))
+    (goto (label eval-end))
+
+    eval-define-error
+    (assign (reg ret) (reg rax))
+    (goto (label eval-end))
+
+    eval-begin
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    (goto (label eval-exp-list-entry))  ; TCO
 
     ;; Args:
     ;; 0 - Lambda or primitive
@@ -1677,7 +1835,7 @@ array."
 
     apply-error
     ,@(call-list
-       (get-predefined-symbol-value "error:eval:wrong-type-to-apply")
+       (get-predefined-symbol-value "err:eval:wrong-type-to-apply")
        'rax)
     (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
@@ -1689,6 +1847,8 @@ array."
     (assign (reg rax) (reg ret))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))        ; Formals
+    ,@(call 'are-equal-length-lists? 'rcx 'rbx)
+    (jez (label apply-lambda-arg-count-error))
     ,@(call 'cdr 'rax)
     (assign (reg rax) (reg ret))
     ,@(call 'car 'rax)
@@ -1698,8 +1858,17 @@ array."
     ,@(call 'extend-env 'rcx 'rbx 'rax)
     (assign (reg rbx) (reg ret))        ; Updated environment
     (assign (reg rax) (reg rdx))
-    (stack-pop (reg rdx))
     (goto (label eval-exp-list-entry))  ; TCO
+
+    apply-lambda-arg-count-error
+    ,@(call-list
+       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
+       'rcx                             ; Expected
+       'rbx)                            ; Actual
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     apply-primitive
     ,@(call 'cdr 'rax)
@@ -1708,7 +1877,23 @@ array."
     (assign (reg rcx) (reg ret))        ; Parameter count
     ,@(call 'cadr 'rax)
     (assign (reg rax) (reg ret))        ; Label
-    ;; TODO: reverse arguments list
+    ;; NOTE: we need to reverse the argument list here to ensure they
+    ;; get pushed to the stack in the correct order. This is
+    ;; inefficient, but necessary as a lambda requires the arguments
+    ;; to be in the 'correct' order (to match up with the order of the
+    ;; parsed formals list. Possible ways around this include:
+    ;;
+    ;;   1. Have EVAL determine whether the application is a lambda or
+    ;;   primitive and construct the argument list in the
+    ;;   corresponding order. This breaks the clear separation of
+    ;;   concerns between EVAL and APPLY somewhat.
+    ;;
+    ;;   2. Write the arguments to the stack directly to memory,
+    ;;   instead of using the STACK-PUSH instruction. This operation
+    ;;   would need to be provided by the virtual machine to handle
+    ;;   the STACK-LIMIT option.
+    ,@(call 'reverse 'rbx)
+    (assign (reg rbx) (reg ret))
     (assign (reg rdx) (const 0))        ; Count of pushed args
 
     apply-primitive-test
@@ -1722,9 +1907,23 @@ array."
     (goto (label apply-primitive-test))
 
     apply-primitive-continue
+    ;; If the arg count equals VAR-ARGS-PARAM-COUNT, pass the number of
+    ;; args as the first argument. Else, assert that the pushed arg
+    ;; count equals the required number of args.
+    (test (op =) (reg rcx) (const ,var-args-param-count))
+    (jne (label apply-primitive-handle-var-args))
     (test (op =) (reg rdx) (reg rcx))
     (jez (label apply-primitive-arg-count-error))
+    (goto (label apply-primitive-call-prim))
+
+    apply-primitive-handle-var-args
+    (stack-push (reg rdx))
+    (goto (label apply-primitive-call-prim))
+
+    apply-primitive-call-prim
     (call (reg rax))
+    ;; Reset stack pointer to clear unpopped primitive call arguments
+    (assign (reg sp) (op -) (reg bp) (const 4))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
@@ -1732,23 +1931,135 @@ array."
     (ret)
 
     apply-primitive-arg-count-error
-    ;; TODO
+    ,@(call-list
+       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
+       ;; TODO: add primitive symbol to output
+       'rdx                             ; Expected
+       'rcx)                            ; Actual
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
+
+    ;; Args:
+    ;; 0 - list ot reverse
+    ;; Output: new, reversed list
+    reverse
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Unhandled list
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label reverse-empty-list))
+    (assign (reg rbx) (const ,empty-list)) ; Accumulated reversed list
+
+    ;; At this point, the unhandled list is non-empty
+    reverse-test
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jne (label reverse-singleton))
+    (assign (reg rax) (reg ret))
+    ,@(call 'cons 'rcx 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label reverse-test))
+
+    reverse-singleton
+    (stack-push (reg rdx))
+    (assign (reg rax) (reg rcx))
+    (goto (label cons-entry))
+
+    reverse-empty-list
+    (assign (reg ret) (const ,empty-list))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Test for equality of the length of two lists.
+    are-equal-length-lists?
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+    are-equal-length-lists?-test
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label are-equal-length-lists?-base-case))
+    ,@(call 'pair? 'rax)
+    (jez (label are-equal-length-lists?-end))
+    ,@(call 'pair? 'rbx)
+    (jez (label are-equal-length-lists?-end))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'cdr 'rbx)
+    (assign (reg rbx) (reg ret))
+    (goto (label are-equal-length-lists?-test))
+
+    are-equal-length-lists?-base-case
+    (test (op =) (reg rbx) (const ,empty-list))
+
+    are-equal-length-lists?-end
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; Args:
+    ;; 0 - Number of other arguments to the function
+    ;; * - Values to add
+    prim-+
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Number of arguments to process
+    (assign (reg rbx) (const 0))        ; Running sum
+
+    prim-+-test
+    (test (op >) (reg rax) (const 0))
+    (jez (label prim-+-continue))
+    (mem-load (reg rcx) (op +) (reg bp) (const 2) (reg rax))
+    (assign (reg rdx) (op logand) (reg rcx) (const ,tag-mask))
+    (test (op =) (reg rdx) (const ,number-tag))
+    (jez (label prim-+-not-a-number))
+    (assign (reg rcx) (op logand) (reg rcx) (const ,value-mask)) ; Extract numeric value
+    (assign (reg rbx) (op +) (reg rbx) (reg rcx))
+    (assign (reg rax) (op -) (reg rax) (const 1))
+    (goto (label prim-+-test))
+
+    prim-+-continue
+    (assign (reg ret) (op logior) (const ,number-tag) (reg rbx))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    prim-+-not-a-number
+    ,@(call-list
+       (get-predefined-symbol-value "err:+:non-numeric-arg")
+       'rcx)
+    (assign (reg rax) (reg ret))
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (goto (label make-error-entry))     ; TCO
 
     _start))
 
 ;;; Utilities
 
-(define (wrap-code num-registers max-num-pairs memory-size code)
+(define* (wrap-code num-registers max-num-pairs memory-size code #:key (init-symbol-trie? #t))
   (append
-   (init num-registers max-num-pairs memory-size #:runtime-checks? #t)
+   (init num-registers max-num-pairs memory-size #:runtime-checks? #t #:init-symbol-trie? init-symbol-trie?)
    code))
 
 (define (range min max)
   "Integer range between MIN (inclusive) and MAX (exclusive)."
-  (if (>= min max)
-      '()
-      (cons min
-            (range (1+ min) max))))
+  (map
+   (lambda (n)
+     (+ n min))
+   (iota (- max min))))
 
 (define (render-trace-value obj)
   (cond ((number? obj)
@@ -1810,7 +2121,8 @@ array."
                             (num-registers test-num-registers)
                             (stack-size test-stack-size)
                             (max-num-pairs test-max-num-pairs)
-                            (read-buffer-size test-read-buffer-size))
+                            (read-buffer-size test-read-buffer-size)
+                            (init-symbol-trie? #t))
   (let ((memory-size (+ the-cars-offset
                         (* 4 max-num-pairs)
                         read-buffer-size
@@ -1818,8 +2130,9 @@ array."
     (make-machine-load-text
      num-registers
      memory-size
-     (wrap-code num-registers max-num-pairs memory-size code)
+     (wrap-code num-registers max-num-pairs memory-size code #:init-symbol-trie? init-symbol-trie?)
      #:register-trace-renderer register-trace-renderer
+     #:register-value-renderer render-trace-value
      #:stack-limit stack-size)))
 
 (define (test-match-only pattern)
@@ -1831,6 +2144,8 @@ array."
 
 (test-runner-current (test-runner-simple))
 
+(test-skip (test-match-only "eval--apply--lambda-closure"))
+
 (test-group
  "memory--cons"
  (let* ((machine
@@ -1840,7 +2155,8 @@ array."
             (assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label cons))
-            (assign (reg sp) (op +) (reg sp) (const 2)))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret))
         (memory (get-machine-memory machine)))
    (start-machine machine)
@@ -1849,7 +2165,6 @@ array."
 
 (test-group
  "memory--pointer-to-pair?--true"
- ;; Test pointer-to-pair?: true
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -1860,27 +2175,27 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label pointer-to-pair?))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (flag (get-machine-flag machine)))
    (start-machine machine)
    (test-eqv (get-register-contents flag) 1)))
 
 (test-group
  "memory--pointer-to-pair?--false"
- ;; Test pointer-to-pair?: false
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label pointer-to-pair?))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (flag (get-machine-flag machine)))
    (start-machine machine)
    (test-eqv (get-register-contents flag) 0)))
 
 (test-group
  "memory--car--success"
- ;; Test car: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -1891,25 +2206,25 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label car))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 1))))
 
 (test-group
  "memory--car--error"
- ;; Test car: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label car))
-            (stack-pop)))))
+            (stack-pop))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
  "memory--cdr--success"
- ;; Test cdr: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -1920,25 +2235,25 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg ret))
             (call (label cdr))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 2))))
 
 (test-group
  "memory--cdr--error"
- ;; Test cdr: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (call (label cdr))
-            (stack-pop)))))
+            (stack-pop))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
  "memory--set-car!"
- ;; Test set-car!: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -1955,26 +2270,26 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
             (call (label car))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 3))))
 
 (test-group
  "memory--set-car!--success"
- ;; Test set-car!: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (stack-push (reg rax))
             (call (label set-car!))
-            (assign (reg sp) (op +) (reg sp) (const 2))))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
  "memory--set-cdr!--success"
- ;; Test set-cdr!: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -1991,21 +2306,22 @@ array."
             (assign (reg sp) (op +) (reg sp) (const 2))
             (stack-push (reg rax))
             (call (label cdr))
-            (stack-pop))))
+            (stack-pop))
+          #:init-symbol-trie? #f))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
    (test-eqv (get-register-contents ret) (logior number-tag 3))))
 
 (test-group
  "memory--set-cdr!--error"
- ;; Test set-cdr!: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
             (stack-push (reg rax))
             (stack-push (reg rax))
             (call (label set-cdr!))
-            (assign (reg sp) (op +) (reg sp) (const 2))))))
+            (assign (reg sp) (op +) (reg sp) (const 2)))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -2017,7 +2333,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const 1))
             ,@(call 'cons 'rax 'ret)
-            ,@(call 'cadr 'ret)))))
+            ,@(call 'cadr 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 2)))
 
@@ -2030,7 +2347,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const 1))
             ,@(call 'cons 'rax 'ret)
-            ,@(call 'cddr 'ret)))))
+            ,@(call 'cddr 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
 
@@ -2043,7 +2361,8 @@ array."
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (const ,empty-list))
             ,@(call 'cons 'ret 'rax)
-            ,@(call 'caar 'ret)))))
+            ,@(call 'caar 'ret))
+          #:init-symbol-trie? #f)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret)) 1)))
 
@@ -2064,7 +2383,8 @@ array."
             (assign (reg rbx) (reg ret))
             (call (label cdr))
             (stack-pop)
-            (assign (reg rcx) (reg ret)))))
+            (assign (reg rcx) (reg ret)))
+          #:init-symbol-trie? #f))
         (rax (get-machine-register machine rax))
         (rbx (get-machine-register machine rbx))
         (rcx (get-machine-register machine rcx)))
@@ -2084,7 +2404,8 @@ array."
             (call (label cons))
             (stack-pop)
             (assign (reg ret) (const 0))
-            (call (label gc)))))
+            (call (label gc)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine)))
    (start-machine machine)
    (test-eqv (get-memory memory free-pair-pointer) 0)))
@@ -2097,7 +2418,8 @@ array."
             (assign (reg rbx) (op logior) (const ,number-tag) (const 2))
             ,@(call 'cons 'rax 'rbx)
             (assign (reg rax) (reg ret))
-            (call (label gc)))))
+            (call (label gc)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (ret (get-machine-register machine ret))
         (rax (get-machine-register machine rax)))
@@ -2121,7 +2443,8 @@ array."
             ,@(call 'cons 'rcx 'ret)
             (call (label gc))
             ,@(call 'car 'ret)
-            ,@(call 'cdr 'ret))))
+            ,@(call 'cdr 'ret))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (ret (get-machine-register machine ret)))
    (start-machine machine)
@@ -2151,7 +2474,8 @@ array."
             ,@(call 'car 'rax)
             (assign (reg rbx) (reg ret))
             ,@(call 'cdr 'rax)
-            (assign (reg rcx) (reg ret)))))
+            (assign (reg rcx) (reg ret)))
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine))
         (rbx (get-machine-register machine rbx))
         (rcx (get-machine-register machine rcx)))
@@ -2178,7 +2502,8 @@ array."
             after-loop
             ;; Create further pair
             (assign (reg rax) (const ,test-max-num-pairs))
-            ,@(call 'cons 'rax 'rax)))))
+            ,@(call 'cons 'rax 'rax))
+          #:init-symbol-trie? #f)))
    (test-error #t (start-machine machine))))
 
 (test-group
@@ -2194,7 +2519,8 @@ array."
             (assign (reg ret) (const 0))
             (assign (reg rax) (op +) (reg rax) (const 1))
             (goto (label loop))
-            after-loop)))
+            after-loop)
+          #:init-symbol-trie? #f))
         (memory (get-machine-memory machine)))
    (start-machine machine)
    (test-eqv (get-memory memory free-pair-pointer) 1)))
@@ -2202,182 +2528,186 @@ array."
 (test-group
  "lib--equal?--success"
  ;; Test equal? successful: '((1) (2))
- (let ((machine
-        (make-test-machine
-         `((goto (label start))
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `((goto (label start))
 
-           build-list
-           (stack-push (reg rax))
-           (stack-push (reg rbx))
-           (stack-push (reg rcx))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 2))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rax) (reg ret))
-           ,@(call 'cons 'rax 'rbx)
-           (assign (reg rcx) (reg ret))
-           (assign (reg rax) (op logior) (const ,number-tag) (const 1))
-           (assign (reg rbx) (const ,empty-list))
-           ,@(call 'cons 'rax 'rbx)
-           ,@(call 'cons 'ret 'rcx)
-           (stack-pop (reg rcx))
-           (stack-pop (reg rbx))
-           (stack-pop (reg rax))
-           (ret)
+            build-list
+            (stack-push (reg rax))
+            (stack-push (reg rbx))
+            (stack-push (reg rcx))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 2))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rax) (reg ret))
+            ,@(call 'cons 'rax 'rbx)
+            (assign (reg rcx) (reg ret))
+            (assign (reg rax) (op logior) (const ,number-tag) (const 1))
+            (assign (reg rbx) (const ,empty-list))
+            ,@(call 'cons 'rax 'rbx)
+            ,@(call 'cons 'ret 'rcx)
+            (stack-pop (reg rcx))
+            (stack-pop (reg rbx))
+            (stack-pop (reg rax))
+            (ret)
 
-           start
-           ,@(call 'build-list)
-           (assign (reg rax) (reg ret))
-           ,@(call 'build-list)
-           (assign (reg rbx) (reg ret))
-           ,@(call 'equal? 'rax 'rbx)))))
+            start
+            ,@(call 'build-list)
+            (assign (reg rax) (reg ret))
+            ,@(call 'build-list)
+            (assign (reg rbx) (reg ret))
+            ,@(call 'equal? 'rax 'rbx))
+          #:max-num-pairs max-num-pairs)))
    (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1))
- )
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
 (test-group
  "lib--equal?--failure"
  ;; Test equal? unsuccessful: (1 2) vs (1 2 3)
- (let ((machine
-        (make-test-machine
-         `((goto (label start))
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `((goto (label start))
 
-           ;; Args:
-           ;; 0 - integer M
-           ;; 1 - integer N
-           ;; Output: the list [M..N)
-           range
-           (stack-push (reg rax))
-           (stack-push (reg rbx))
-           (stack-push (reg rcx))
-           (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
-           (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
-           (test (op >=) (reg rax) (reg rbx))
-           (jne (label range-base-case))
-           (assign (reg rcx) (op +) (reg rax) (const 1))
-           ,@(call 'range 'rcx 'rbx)
-           ,@(call 'cons 'rax 'ret)
-           (goto (label range-end))
+            ;; Args:
+            ;; 0 - integer M
+            ;; 1 - integer N
+            ;; Output: the list [M..N)
+            range
+            (stack-push (reg rax))
+            (stack-push (reg rbx))
+            (stack-push (reg rcx))
+            (mem-load (reg rax) (op +) (reg bp) (const 2)) ; M
+            (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; N
+            (test (op >=) (reg rax) (reg rbx))
+            (jne (label range-base-case))
+            (assign (reg rcx) (op +) (reg rax) (const 1))
+            ,@(call 'range 'rcx 'rbx)
+            ,@(call 'cons 'rax 'ret)
+            (goto (label range-end))
 
-           range-base-case
-           (assign (reg ret) (const ,empty-list))
+            range-base-case
+            (assign (reg ret) (const ,empty-list))
 
-           range-end
-           (stack-pop (reg rcx))
-           (stack-pop (reg rbx))
-           (stack-pop (reg rax))
-           (ret)
+            range-end
+            (stack-pop (reg rcx))
+            (stack-pop (reg rbx))
+            (stack-pop (reg rax))
+            (ret)
 
-           start
-           (assign (reg rax) (const 0))
-           (assign (reg rbx) (const 2))
-           ,@(call 'range 'rax 'rbx)
-           (assign (reg rcx) (reg ret))
-           (assign (reg rbx) (const 3))
-           ,@(call 'range 'rax 'rbx)
-           ,@(call 'equal? 'rcx 'ret)))))
+            start
+            (assign (reg rax) (const 0))
+            (assign (reg rbx) (const 2))
+            ,@(call 'range 'rax 'rbx)
+            (assign (reg rcx) (reg ret))
+            (assign (reg rbx) (const 3))
+            ,@(call 'range 'rax 'rbx)
+            ,@(call 'equal? 'rcx 'ret))
+          #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
 
-(test-group
- "read--parse-int--success"
- (for-each
-  (lambda (test-case)
-    (let* ((str
-            (if (string? test-case)
-                test-case
-                (car test-case)))
-           (parsed-number
-            (if (string? test-case)
-                (string->number test-case)
-                (cadr test-case)))
-           (count-chars-read
-            (if (string? test-case)
-                (string-length test-case)
-                (caddr test-case)))
-           (machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-               ,@(call 'parse-int 'rax 'rbx)
-               (assign (reg rax) (reg ret))
-               ,@(call 'car 'rax)
-               (assign (reg rbx) (reg ret))
-               ,@(call 'cdr 'rax))))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rbx))
-        (logior parsed-number number-tag))
-      (test-eqv (get-register-contents (get-machine-register machine ret))
-        (+ test-read-buffer-offset count-chars-read))))
-  '("0"
-    "9"
-    "999"
-    "1001"
-    "001111"
-    ("9 " 9 1)
-    ("9)" 9 1))))
+(for-each
+ (lambda (test-case)
+   (let ((str
+          (if (string? test-case)
+              test-case
+              (car test-case))))
+     (test-group
+      (format #f "read--parse-int--success-'~a'" str)
+      (let* (
+             (parsed-number
+              (if (string? test-case)
+                  (string->number test-case)
+                  (cadr test-case)))
+             (count-chars-read
+              (if (string? test-case)
+                  (string-length test-case)
+                  (caddr test-case)))
+             (machine
+              (make-test-machine
+               `((assign (reg rax) (const ,test-read-buffer-offset))
+                 (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+                 ,@(call 'parse-int 'rax 'rbx)
+                 (assign (reg rax) (reg ret))
+                 ,@(call 'car 'rax)
+                 (assign (reg rbx) (reg ret))
+                 ,@(call 'cdr 'rax))))
+             (memory (get-machine-memory machine)))
+        (reset-machine machine)
+        (write-memory memory
+                      test-read-buffer-offset
+                      (map char->integer (string->list str)))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rbx))
+          (logior parsed-number number-tag))
+        (test-eqv (get-register-contents (get-machine-register machine ret))
+          (+ test-read-buffer-offset count-chars-read))))))
+ '("0"
+   "9"
+   "999"
+   "1001"
+   "001111"
+   ("9 " 9 1)
+   ("9)" 9 1)))
 
-(test-group
- "read--parse-int--failure"
- (for-each
+(for-each
   (lambda (str)
-    (let* ((machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
-               ,@(call 'parse-int 'rax 'rbx)
-               (test (op =) (reg ret) (const ,parse-failed-value))
-               (jne (label end))
-               (error (const -1))
+    (test-group
+     (format #f "read--parse-int--failure-'~a'" str)
+     (let* ((machine
+             (make-test-machine
+              `((assign (reg rax) (const ,test-read-buffer-offset))
+                (assign (reg rbx) (const ,(+ test-read-buffer-offset (string-length str))))
+                ,@(call 'parse-int 'rax 'rbx)
+                (test (op =) (reg ret) (const ,parse-failed-value))
+                (jne (label end))
+                (error (const -1))
 
-               end)))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)))
+                end)))
+            (memory (get-machine-memory machine)))
+       (reset-machine machine)
+       (write-memory memory
+                     test-read-buffer-offset
+                     (map char->integer (string->list str)))
+       (continue-machine machine))))
   '(""
     "d"
     "1d"
     "1."
     "1'"
-    "1(")))
+    "1("))
 
-(test-group
- "read--parse-int--bounds-checking"
- (for-each
-  (lambda (test-case)
-    (let* ((str (car test-case))
-           (bound (cadr test-case))
-           (parsed-number (caddr test-case))
-           (machine
-            (make-test-machine
-             `((assign (reg rax) (const ,test-read-buffer-offset))
-               (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
-               ,@(call 'parse-int 'rax 'rbx)
-               (assign (reg rax) (reg ret))
-               ,@(call 'car 'rax)
-               (assign (reg rbx) (reg ret))
-               ,@(call 'cdr 'rax))))
-           (memory (get-machine-memory machine)))
-      (reset-machine machine)
-      (write-memory memory
-                    test-read-buffer-offset
-                    (map char->integer (string->list str)))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rbx))
-        (logior parsed-number number-tag))
-      (test-eqv (get-register-contents (get-machine-register machine ret))
-        (+ test-read-buffer-offset bound))))
-  '(("99" 1 9)
-    ("999" 2 99)
-    ("99d" 2 99))))
+(for-each
+ (lambda (test-case)
+   (let ((str (car test-case)))
+     (test-group
+      (format #f "read--parse-int--bounds-checking-'~a'" str)
+      (let* ((bound (cadr test-case))
+             (parsed-number (caddr test-case))
+             (machine
+              (make-test-machine
+               `((assign (reg rax) (const ,test-read-buffer-offset))
+                 (assign (reg rbx) (const ,(+ test-read-buffer-offset bound)))
+                 ,@(call 'parse-int 'rax 'rbx)
+                 (assign (reg rax) (reg ret))
+                 ,@(call 'car 'rax)
+                 (assign (reg rbx) (reg ret))
+                 ,@(call 'cdr 'rax))))
+             (memory (get-machine-memory machine)))
+        (reset-machine machine)
+        (write-memory memory
+                      test-read-buffer-offset
+                      (map char->integer (string->list str)))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rbx))
+          (logior parsed-number number-tag))
+        (test-eqv (get-register-contents (get-machine-register machine ret))
+          (+ test-read-buffer-offset bound))))))
+ '(("99" 1 9)
+   ("999" 2 99)
+   ("99d" 2 99)))
 
 (test-group
  "read--parse-list--empty-list"
@@ -2586,10 +2916,10 @@ array."
    (test-eqv (get-register-contents (get-machine-register machine rbx))
      (logior number-tag 1))))
 
-(test-group
- "read--parse-list--failures"
- (for-each
-  (lambda (test-case)
+(for-each
+ (lambda (test-case)
+   (test-group
+    (format #f "read--parse-list--failures-'~a'" test-case)
     (let* ((exp (string->list (format #f "~a" test-case)))
            (machine (make-test-machine
                      `((assign (reg rax) (const ,test-read-buffer-offset))
@@ -2601,56 +2931,59 @@ array."
                     test-read-buffer-offset
                     (map char->integer exp))
       (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value)))
-  '("(1"
-    "((1)"
-    ")"
-    ""
-    "(1 .)"
-    "(1 . 2")))
+      (test-eqv (get-register-contents (get-machine-register machine rax)) parse-failed-value))))
+ '("(1"
+   "((1)"
+   ")"
+   ""
+   "(1 .)"
+   "(1 . 2"))
 
-(test-group
- "read--parse-symbol--success"
- (for-each
-  (lambda (test-case)
-    (let* ((test-case-str
-            (if (pair? test-case)
-                (car test-case)
-                test-case))
-           (test-case-parsed-count
-            (if (pair? test-case)
-                (cadr test-case)
-                (string-length test-case)))
-           (exp (string->list test-case-str))
-           (machine (make-test-machine
-                     `((assign (reg rax) (const ,test-read-buffer-offset))
-                       (assign (reg rbx) (const ,(+ test-read-buffer-offset (length exp))))
-                       ,@(call 'parse-symbol 'rax 'rbx)
-                       (assign (reg rax) (reg ret))
-                       ,@(call 'car 'rax)
-                       (assign (reg rbx) (reg ret))
-                       ,@(call 'cdr 'rax)
-                       (assign (reg rax) (reg ret))))))
-      (reset-machine machine)
-      (write-memory (get-machine-memory machine)
-                    test-read-buffer-offset
-                    (map char->integer exp))
-      (continue-machine machine)
-      (test-eqv (get-register-contents (get-machine-register machine rax))
-        (+ test-read-buffer-offset test-case-parsed-count))
-      (test-eqv (logand tag-mask
-                        (get-register-contents (get-machine-register machine rbx)))
-        symbol-tag)))
-  '("a"
-    "a0"
-    "a-0"
-    ("a0)" 2)
-    ("a0 " 2))))
+(for-each
+ (lambda (test-case)
+   (let ((test-case-str
+          (if (pair? test-case)
+              (car test-case)
+              test-case)))
+     (test-group
+      (format #f "read--parse-symbol--success-'~a'" test-case-str)
+      (let* ((test-case-parsed-count
+              (if (pair? test-case)
+                  (cadr test-case)
+                  (string-length test-case)))
+             (exp (string->list test-case-str))
+             (max-num-pairs 128)
+             (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+             (machine (make-test-machine
+                       `((assign (reg rax) (const ,read-buffer-offset))
+                         (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                         ,@(call 'parse-symbol 'rax 'rbx)
+                         (assign (reg rax) (reg ret))
+                         ,@(call 'car 'rax)
+                         (assign (reg rbx) (reg ret))
+                         ,@(call 'cdr 'rax)
+                         (assign (reg rax) (reg ret)))
+                       #:max-num-pairs max-num-pairs)))
+        (reset-machine machine)
+        (write-memory (get-machine-memory machine)
+                      read-buffer-offset
+                      (map char->integer exp))
+        (continue-machine machine)
+        (test-eqv (get-register-contents (get-machine-register machine rax))
+          (+ read-buffer-offset test-case-parsed-count))
+        (test-eqv (logand tag-mask
+                          (get-register-contents (get-machine-register machine rbx)))
+          symbol-tag)))))
+ '("a"
+   "a0"
+   "a-0"
+   ("a0)" 2)
+   ("a0 " 2)))
 
-(test-group
- "read--parse-symbol--failures"
- (for-each
-  (lambda (test-case-str)
+(for-each
+ (lambda (test-case-str)
+   (test-group
+    (format #f "read--parse-symbol--failure-'~a'" test-case-str)
     (let* ((exp (string->list test-case-str))
            (machine (make-test-machine
                      `((assign (reg rax) (const ,test-read-buffer-offset))
@@ -2663,8 +2996,8 @@ array."
                     (map char->integer exp))
       (continue-machine machine)
       (test-eqv (get-register-contents (get-machine-register machine rax))
-        parse-failed-value)))
-  '("" "8" "8a")))
+        parse-failed-value))))
+ '("" "8" "8a"))
 
 (test-group
  "read--parse-exp--symbol-list"
@@ -2780,24 +3113,28 @@ array."
                     (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
                     ,@(call 'parse-exp 'rax 'rbx)
                     (call (label gc))
-                    (mem-load (reg rax) (const ,symbol-list))
-                    ,@(call 'car 'rax)
-                    (assign (reg rbx) (reg ret)) ; Character list of parsed symbol
-                    ,@(call 'cdr 'rax)
-                    (assign (reg rax) (reg ret)) ; Remainder of SYMBOL-LIST
+                    (mem-load (reg rax) (const ,symbol-trie-root))
+                    ,@(call 'car 'rax) ; Character to trie item alist
+                    ,@(call 'car 'ret)
+                    (assign (reg rbx) (reg ret))
                     ,@(call 'car 'rbx)
-                    (assign (reg rcx) (reg ret)) ; First character in symbol
+                    (assign (reg rcx) (reg ret)) ; CAR of first entry in alist
                     ,@(call 'cdr 'rbx)
-                    (assign (reg rdx) (reg ret))) ; Remainder of character list
+                    (assign (reg rbx) (reg ret)) ; CDR of first entry in alist
+                    ,@(call 'car 'rbx)
+                    (assign (reg rdx) (reg ret)) ; Character to trie item alist
+                    ,@(call 'cdr 'rbx)
+                    (assign (reg rbx) (reg ret))) ; Symbol corresponding to trie item
                   #:max-num-pairs max-num-pairs)))
    (reset-machine machine)
    (write-memory (get-machine-memory machine)
                  read-buffer-offset
                  (map char->integer exp))
    (continue-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine rax)) empty-list)
    (test-eqv (get-register-contents (get-machine-register machine rcx)) (char->integer test-char))
-   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)))
+   (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)
+   (test-eqv (get-register-contents (get-machine-register machine rbx))
+     (logior symbol-tag 0))))
 
 ;;; Environment testing
 
@@ -3201,6 +3538,10 @@ EVAL for magic value not accessible to the programmer"
  (test-eval #f #f))
 
 (test-group
+ "eval--symbol--error"
+ (test-eval-error 'y "err:unbound-variable"))
+
+(test-group
  "eval--error--unknown-exp-type"
  (let* ((machine
          (make-test-machine
@@ -3239,31 +3580,31 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--if--no-args"
- (test-eval-error '(if) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--no-consequent"
- (test-eval-error '(if #t) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--too-many-args"
- (test-eval-error '(if #t 0 1 2) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 1 2) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-consequent"
- (test-eval-error '(if #t . 0) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t . 0) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--improper-list-alternative"
- (test-eval-error '(if #t 0 . 1) "error:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 . 1) "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--if--propagated-predicate-error"
- (test-eval-error '(if x 1 1) "error:unbound-variable"))
+ (test-eval-error '(if x 1 1) "err:unbound-variable"))
 
 (test-group
  "eval--if--propagated-predicate-error-no-alternative"
- (test-eval-error '(if x 1) "error:unbound-variable"))
+ (test-eval-error '(if x 1) "err:unbound-variable"))
 
 (test-group
  "eval--lambda--valid-empty-formals"
@@ -3281,27 +3622,27 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--lambda--error-no-formals-or-body"
- (test-eval-error '(lambda) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-no-body"
- (test-eval-error '(lambda ()) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda ()) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-symbol-formals"
- (test-eval-error '(lambda 0 #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda 0 #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-formals"
- (test-eval-error '(lambda (a . b) #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda (a . b) #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-body"
- (test-eval-error '(lambda () . #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda () . #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--lambda--error-improper-body-multiple-statements"
- (test-eval-error '(lambda () #f . #t) "error:eval:lambda-syntax"))
+ (test-eval-error '(lambda () #f . #t) "err:eval:lambda-syntax"))
 
 (test-group
  "eval--apply--lambda-no-args"
@@ -3325,24 +3666,264 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--error-non-function"
- (test-eval-error '(1) "error:eval:wrong-type-to-apply"))
+ (test-eval-error '(1) "err:eval:wrong-type-to-apply"))
 
 (test-group
  "eval--apply--lambda-error-first-argument"
- (test-eval-error '((lambda (x) x) x) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) x) x) "err:unbound-variable"))
 
 (test-group
  "eval--apply--lambda-error-second-argument"
- (test-eval-error '((lambda (x) x) 1 x) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) x) 1 x) "err:unbound-variable"))
 
 (test-group
  "eval--apply--lambda-error-body"
- (test-eval-error '((lambda (x) y)) "error:unbound-variable"))
+ (test-eval-error '((lambda (x) y) 1) "err:unbound-variable"))
 
-;;; TODO: apply
-;;; Catch errors with wrong numbers of params
-;;; Test multiple statements
+(test-group
+ "eval--apply--lambda-error-too-many-args"
+ (test-eval-error '((lambda () 1) 1) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--lambda-error-too-few-args"
+ (test-eval-error '((lambda (x y) y) 1) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--lambda-non-final-statement-error"
+ (test-eval-error
+  '((lambda (x)
+      y
+      1)
+    1)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-final-statement-error"
+ (test-eval-error
+  '((lambda (x)
+      1
+      y)
+    1)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--apply--lambda-closure"
+ (test-eval
+  '(((lambda (x)
+       (lambda (y)
+         x))
+     1) 2)
+  1))
 
 (test-group
  "eval--apply--primitive-cons"
- (test-eval '(cons 1 2) '(2 . 1) #:trace #t))
+ (test-eval '(cons 1 2) '(1 . 2)))
+
+(test-group
+ "eval--apply--primitive-too-few-arguments"
+ (test-eval-error '(cons 1) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--primitive-too-many-arguments"
+ (test-eval-error '(cons 1 2 3) "err:apply:wrong-number-of-args"))
+
+(test-group
+ "eval--apply--primitive-error-first-arg"
+ (test-eval-error '(cons x 2) "err:unbound-variable"))
+
+(test-group
+ "eval--apply--primitive-error-second-arg"
+ (test-eval-error '(cons 1 y) "err:unbound-variable"))
+
+(test-group
+ "eval--apply--primitive-+-no-args"
+ (test-eval '(+) 0))
+
+(test-group
+ "eval--apply--primitive-+-multiple-args"
+ (test-eval '(+ 1 2 3) 6))
+
+(test-group
+ "eval--apply--primitive-+-invalid-arg"
+ (test-eval-error '(+ 1 #f 3) "err:+:non-numeric-arg"))
+
+(test-group
+ "eval--set!--constant"
+ (test-eval
+  '((lambda (x)
+      (set! x 2)
+      x)
+    1)
+  2))
+
+(test-group
+ "eval--set!--application"
+ (test-eval
+  '((lambda (x)
+      (set! x (+ x 1))
+      x)
+    1)
+  2))
+
+(test-group
+ "eval--set!--value-error"
+ (test-eval-error
+  '((lambda (x)
+      (set! x y)
+      x)
+    1)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--set!--syntax-error-1"
+ (test-eval-error
+  '(set!)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-2"
+ (test-eval-error
+  '(set! x)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-3"
+ (test-eval-error
+  '(set! (x) 1)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-4"
+ (test-eval-error
+  '(set! x (+ 1 2) 4)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--constant"
+ (test-eval
+  '(begin
+     (define x 1)
+     x)
+  1))
+
+(test-group
+ "eval--define--application"
+ (test-eval
+  '(begin
+     (define x (+ 1 1 1))
+     x)
+  3))
+
+(test-group
+ "eval--define--value-error"
+ (test-eval-error
+  '(begin
+     (define x y)
+     x)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--define--syntax-error-1"
+ (test-eval-error
+  '(define)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-2"
+ (test-eval-error
+  '(define y)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-3"
+ (test-eval-error
+  '(define y 1 1)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-4"
+ (test-eval-error
+  '(define (y 5) 1)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "lib--reverse--empty-list"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          (call 'reverse empty-list)
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) empty-list)))
+
+(test-group
+ "lib--reverse--singleton"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0)
+            (assign (reg rax) (reg ret))
+            ,@(call 'reverse 'rax)
+            ,@(call 'equal? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--reverse--two-value-list"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'reverse 'ret)
+            (assign (reg rax) (reg ret))
+            ,@(call-list 1 0)
+            ,@(call 'equal? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--empty-lists"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call 'are-equal-length-lists? empty-list empty-list))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--equal-lists"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            (assign (reg rax) (reg ret))
+            ,@(call-list 2 3)
+            ,@(call 'are-equal-length-lists? 'rax 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
+
+(test-group
+ "lib--are-equal-length-lists?--pair-empty"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'are-equal-length-lists? 'ret empty-list))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "lib--are-equal-length-lists?--empty-pair"
+ (let* ((max-num-pairs 1024)
+        (machine
+         (make-test-machine
+          `(,@(call-list 0 1)
+            ,@(call 'are-equal-length-lists? empty-list 'ret))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))

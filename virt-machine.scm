@@ -35,7 +35,7 @@
              (lambda (val call-stack-depth)
                (let ((prev contents))
                  (set! contents val)
-                 (if trace
+                 (if (eq? trace 'full)
                      (print-with-indent
                       (trace-renderer name prev val)
                       call-stack-depth)))))
@@ -98,12 +98,15 @@
 
 (define initial-register-value -1)
 
+(define (default-register-value-renderer value)
+  (format #f "~a" value))
+
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-value-renderer) stack-limit)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (sp (make-register 'sp #:trace-renderer register-trace-renderer))
@@ -131,7 +134,14 @@
                                (number? b))
                           (logand a b)
                           0)))
-              (list 'logior logior)))
+              (list 'logior logior)
+              (list 'set-trace
+                    (lambda (machine level)
+                      (set-machine-trace-all
+                       machine
+                       (cond ((= level 1) 'function-calls)
+                             ((= level 2) 'full)
+                             (else #f)))))))
         (trace #f)
         (call-stack-depth 0))
 
@@ -157,10 +167,26 @@
         (if (null? insts)
             'done
             (let ((next-inst (car insts)))
-              (if trace
-                  (print-with-indent
-                   (instruction-text next-inst)
-                   call-stack-depth))
+              (let ((text
+                     (instruction-text next-inst)))
+                (cond ((eq? trace 'function-calls)
+                       (cond ((eq? (car text) 'call)
+                              (print-with-indent
+                               (if (label-exp? (call-target text))
+                                   (label-exp-label (call-target text))
+                                   text)
+                               call-stack-depth))
+                             ((eq? (car text) 'ret)
+                              (print-with-indent
+                               (format #f
+                                       "ret: ~a"
+                                       (register-value-renderer
+                                        (get-register-contents (vector-ref registers 0))))
+                               (1- call-stack-depth)))))
+                      ((eq? trace 'full)
+                       (print-with-indent
+                        text
+                        call-stack-depth))))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -390,8 +416,8 @@
          (make-jne inst machine labels))
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels))
-        ;; ((eq? (car inst) 'perform)
-        ;;  #f)
+        ((eq? (car inst) 'perform)
+         (make-perform inst machine labels))
         ((eq? (car inst) 'mem-store)
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
@@ -521,6 +547,37 @@
 
 (define (test-condition test-instruction)
   (cdr test-instruction))
+
+;;; Perform
+
+(define (make-action exp machine labels)
+  (let ((op (lookup-machine-prim machine (action-exp-action exp)))
+        (aprocs
+         (map (lambda (e)
+                (if (label-exp? e)
+                    (error "Unexpected label expression -- ASSEMBLE" e)
+                    (make-primitive-exp e machine labels)))
+              (action-exp-operands exp))))
+    (lambda ()
+      (apply op (cons machine (map (lambda (p) (p)) aprocs))))))
+
+(define (action-exp-action operation-exp)
+  (car operation-exp))
+
+(define (action-exp-operands operation-exp)
+  (cdr operation-exp))
+
+(define (make-perform inst machine labels)
+  (let ((action (perform-action inst)))
+    (let ((action-proc
+           (make-action action machine labels))
+          (pc (get-machine-register machine 'pc)))
+      (lambda ()
+        (action-proc)
+        (advance-pc pc)))))
+
+(define (perform-action inst)
+  (cdr inst))
 
 ;;; Jez
 
@@ -763,10 +820,11 @@
 
 ;;; Utilities
 
-(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-trace-renderer) stack-limit)
   (let ((machine (make-machine n-registers
                                n-memory-slots
                                #:register-trace-renderer register-trace-renderer
+                               #:register-value-renderer register-value-renderer
                                #:stack-limit stack-limit)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
