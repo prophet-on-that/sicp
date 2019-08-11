@@ -1747,12 +1747,19 @@ array."
     (jez (label eval-unknown-exp))
     ,@(call 'car 'rax)
     (assign (reg rcx) (reg ret))        ; The variable to set
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (test (op =) (reg rdx) (const ,symbol-tag))
+    (jez (label eval-unknown-exp))
     ,@(call 'cdr 'rax)
     (assign (reg rax) (reg ret))
     ,@(call 'pointer-to-pair? 'rax)
     (jez (label eval-unknown-exp))
     ,@(call 'car 'rax)                  ; The value expression
-    ,@(call 'eval 'ret 'rbx)
+    (assign (reg rdx) (reg ret))
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jez (label eval-unknown-exp))
+    ,@(call 'eval 'rdx 'rbx)
     (assign (reg rax) (reg ret))
     ,@(call 'is-error? 'rax)
     (jne (label eval-set!-error))
@@ -3757,7 +3764,7 @@ EVAL for magic value not accessible to the programmer"
   2))
 
 (test-group
- "eval--set!--error"
+ "eval--set!--value-error"
  (test-eval-error
   '((lambda (x)
       (set! x y)
@@ -3765,7 +3772,29 @@ EVAL for magic value not accessible to the programmer"
     1)
   "err:unbound-variable"))
 
-;;; TODO: test define syntax errors
+(test-group
+ "eval--set!--syntax-error-1"
+ (test-eval-error
+  '(set!)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-2"
+ (test-eval-error
+  '(set! x)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-3"
+ (test-eval-error
+  '(set! (x) 1)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--set!--syntax-error-4"
+ (test-eval-error
+  '(set! x (+ 1 2) 4)
+  "err:eval:unknown-exp-type"))
 
 (test-group
  "eval--define--constant"
