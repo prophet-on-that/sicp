@@ -2174,7 +2174,6 @@ array."
 
 (test-group
  "memory--pointer-to-pair?--false"
- ;; Test pointer-to-pair?: false
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -2188,7 +2187,6 @@ array."
 
 (test-group
  "memory--car--success"
- ;; Test car: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -2207,7 +2205,6 @@ array."
 
 (test-group
  "memory--car--error"
- ;; Test car: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -2219,7 +2216,6 @@ array."
 
 (test-group
  "memory--cdr--success"
- ;; Test cdr: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -2238,7 +2234,6 @@ array."
 
 (test-group
  "memory--cdr--error"
- ;; Test cdr: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -2250,7 +2245,6 @@ array."
 
 (test-group
  "memory--set-car!"
- ;; Test set-car!: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -2275,7 +2269,6 @@ array."
 
 (test-group
  "memory--set-car!--success"
- ;; Test set-car!: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
@@ -2288,7 +2281,6 @@ array."
 
 (test-group
  "memory--set-cdr!--success"
- ;; Test set-cdr!: valid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 2))
@@ -2313,7 +2305,6 @@ array."
 
 (test-group
  "memory--set-cdr!--error"
- ;; Test set-cdr!: invalid pair
  (let* ((machine
          (make-test-machine
           `((assign (reg rax) (op logior) (const ,number-tag) (const 1))
