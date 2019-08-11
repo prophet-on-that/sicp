@@ -110,7 +110,9 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "cons"
     "+"
     "ok"
-    "set!"))
+    "set!"
+    "define"
+    "begin"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1491,7 +1493,8 @@ array."
 
     ;; Args:
     ;; 0 - expression to evaluate
-    ;; 1 - environment in which to evaluate the expression
+    ;; 1 - environment in which to evaluate the expression. PRE:
+    ;; non-empty.
     ;; Output: result of the evaluation, or an error
     eval
     (stack-push (reg rax))
@@ -1521,6 +1524,10 @@ array."
     (jne (label eval-lambda))
     (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "set!")))
     (jne (label eval-set!))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "define")))
+    (jne (label eval-define))
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "begin")))
+    (jne (label eval-begin))
     (goto (label eval-application))
 
     eval-number
@@ -1756,6 +1763,44 @@ array."
     eval-set!-error
     (assign (reg ret) (reg rax))
     (goto (label eval-end))
+
+    ;; TODO: support lambda definition syntax
+    eval-define
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))        ; CDR of EXP
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rcx) (reg ret))        ; The variable to define
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (test (op =) (reg rdx) (const ,symbol-tag))
+    (jez (label eval-unknown-exp))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pointer-to-pair? 'rax)
+    (jez (label eval-unknown-exp))
+    ,@(call 'car 'rax)
+    (assign (reg rdx) (reg ret))        ; The value expression
+    ,@(call 'cdr 'rax)
+    (test (op =) (reg ret) (const ,empty-list))
+    (jez (label eval-unknown-exp))
+    ,@(call 'eval 'rdx 'rbx)
+    (assign (reg rax) (reg ret))
+    ,@(call 'is-error? 'rax)
+    (jne (label eval-define-error))
+    ,@(call 'car 'rbx)                  ; We assume the env has at least one frame
+    ,@(call 'add-frame-binding! 'rcx 'rax 'ret)
+    (assign (reg ret) (const ,(get-predefined-symbol-value "ok")))
+    (goto (label eval-end))
+
+    eval-define-error
+    (assign (reg ret) (reg rax))
+    (goto (label eval-end))
+
+    eval-begin
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    (goto (label eval-exp-list-entry))  ; TCO
 
     ;; Args:
     ;; 0 - Lambda or primitive
@@ -2089,6 +2134,8 @@ array."
                             (test-runner-test-name runner))))))
 
 (test-runner-current (test-runner-simple))
+
+(test-skip (test-match-only "eval--apply--lambda-closure"))
 
 (test-group
  "memory--cons"
@@ -3726,6 +3773,56 @@ EVAL for magic value not accessible to the programmer"
       x)
     1)
   "err:unbound-variable"))
+
+;;; TODO: test define syntax errors
+
+(test-group
+ "eval--define--constant"
+ (test-eval
+  '(begin
+     (define x 1)
+     x)
+  1))
+
+(test-group
+ "eval--define--application"
+ (test-eval
+  '(begin
+     (define x (+ 1 1 1))
+     x)
+  3))
+
+(test-group
+ "eval--define--value-error"
+ (test-eval-error
+  '(begin
+     (define x y)
+     x)
+  "err:unbound-variable"))
+
+(test-group
+ "eval--define--syntax-error-1"
+ (test-eval-error
+  '(define)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-2"
+ (test-eval-error
+  '(define y)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-3"
+ (test-eval-error
+  '(define y 1 1)
+  "err:eval:unknown-exp-type"))
+
+(test-group
+ "eval--define--syntax-error-4"
+ (test-eval-error
+  '(define (y 5) 1)
+  "err:eval:unknown-exp-type"))
 
 (test-group
  "lib--reverse--empty-list"
