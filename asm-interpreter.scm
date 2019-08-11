@@ -1639,6 +1639,8 @@ array."
     (goto (label make-error-entry))     ; TCO
 
     eval-unknown-exp
+    ;; TODO: use expression passed to eval instead of RAX, which may
+    ;; have been modified.
     ,@(call-list
        (get-predefined-symbol-value "err:eval:unknown-exp-type")
        'rax)
