@@ -35,7 +35,7 @@
              (lambda (val call-stack-depth)
                (let ((prev contents))
                  (set! contents val)
-                 (if trace
+                 (if (eq? trace 'full)
                      (print-with-indent
                       (trace-renderer name prev val)
                       call-stack-depth)))))
@@ -98,12 +98,15 @@
 
 (define initial-register-value -1)
 
+(define (default-register-value-renderer value)
+  (format #f "~a" value))
+
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
 ;;; Calling convention: push arguments in reverse order and CALL,
 ;;; first argument in [bp + 2] etc. Caller must save register 0 as
 ;;; used for return value (callee must save all other registers).
-(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine n-registers n-memory-slots #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-value-renderer) stack-limit)
   (let ((pc (make-register 'pc))
         (flag (make-register 'flag))
         (sp (make-register 'sp #:trace-renderer register-trace-renderer))
@@ -116,6 +119,8 @@
               (list '- -)
               (list '* *)
               (list '= =)
+              (list '!= (lambda (a b)
+                          (not (= a b))))
               (list '< <)
               (list '<= <=)
               (list '> >)
@@ -129,7 +134,14 @@
                                (number? b))
                           (logand a b)
                           0)))
-              (list 'logior logior)))
+              (list 'logior logior)
+              (list 'set-trace
+                    (lambda (machine level)
+                      (set-machine-trace-all
+                       machine
+                       (cond ((= level 1) 'function-calls)
+                             ((= level 2) 'full)
+                             (else #f)))))))
         (trace #f)
         (call-stack-depth 0))
 
@@ -155,10 +167,26 @@
         (if (null? insts)
             'done
             (let ((next-inst (car insts)))
-              (if trace
-                  (print-with-indent
-                   (instruction-text next-inst)
-                   call-stack-depth))
+              (let ((text
+                     (instruction-text next-inst)))
+                (cond ((eq? trace 'function-calls)
+                       (cond ((eq? (car text) 'call)
+                              (print-with-indent
+                               (if (label-exp? (call-target text))
+                                   (label-exp-label (call-target text))
+                                   text)
+                               call-stack-depth))
+                             ((eq? (car text) 'ret)
+                              (print-with-indent
+                               (format #f
+                                       "ret: ~a"
+                                       (register-value-renderer
+                                        (get-register-contents (vector-ref registers 0))))
+                               (1- call-stack-depth)))))
+                      ((eq? trace 'full)
+                       (print-with-indent
+                        text
+                        call-stack-depth))))
               ((instruction-execution-proc next-inst))
               (execute)))))
 
@@ -388,8 +416,8 @@
          (make-jne inst machine labels))
         ((eq? (car inst) 'goto)
          (make-goto inst machine labels))
-        ;; ((eq? (car inst) 'perform)
-        ;;  #f)
+        ((eq? (car inst) 'perform)
+         (make-perform inst machine labels))
         ((eq? (car inst) 'mem-store)
          (make-mem-store inst machine labels))
         ((eq? (car inst) 'mem-load)
@@ -519,6 +547,37 @@
 
 (define (test-condition test-instruction)
   (cdr test-instruction))
+
+;;; Perform
+
+(define (make-action exp machine labels)
+  (let ((op (lookup-machine-prim machine (action-exp-action exp)))
+        (aprocs
+         (map (lambda (e)
+                (if (label-exp? e)
+                    (error "Unexpected label expression -- ASSEMBLE" e)
+                    (make-primitive-exp e machine labels)))
+              (action-exp-operands exp))))
+    (lambda ()
+      (apply op (cons machine (map (lambda (p) (p)) aprocs))))))
+
+(define (action-exp-action operation-exp)
+  (car operation-exp))
+
+(define (action-exp-operands operation-exp)
+  (cdr operation-exp))
+
+(define (make-perform inst machine labels)
+  (let ((action (perform-action inst)))
+    (let ((action-proc
+           (make-action action machine labels))
+          (pc (get-machine-register machine 'pc)))
+      (lambda ()
+        (action-proc)
+        (advance-pc pc)))))
+
+(define (perform-action inst)
+  (cdr inst))
 
 ;;; Jez
 
@@ -695,9 +754,18 @@
         (memory (get-machine-memory machine))
         (sp (get-machine-register machine 'sp))
         (bp (get-machine-register machine 'bp))
-        (next-inst (lookup-label labels (call-target inst))))
+        (call-target-exp (call-target inst)))
     (lambda ()
-      (let ((current-sp (get-register-contents sp)))
+      (let ((current-sp (get-register-contents sp))
+            (next-inst
+             (cond ((label-exp? call-target-exp)
+                    (lookup-label labels
+                                  (label-exp-label call-target-exp)))
+                   ((register-exp? call-target-exp)
+                    (get-register-contents
+                     (get-machine-register machine (register-exp-reg call-target-exp))))
+                   (else
+                    (error "Bad CALL target" inst)))))
         (set-memory! memory (1- current-sp) (cdr (get-register-contents pc)))
         (set-memory! memory (- current-sp 2) (get-register-contents bp))
         (set-register-contents! sp
@@ -752,10 +820,11 @@
 
 ;;; Utilities
 
-(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) stack-limit)
+(define* (make-machine-load-text n-registers n-memory-slots controller-text #:key (register-trace-renderer default-register-trace-renderer) (register-value-renderer default-register-trace-renderer) stack-limit)
   (let ((machine (make-machine n-registers
                                n-memory-slots
                                #:register-trace-renderer register-trace-renderer
+                               #:register-value-renderer register-value-renderer
                                #:stack-limit stack-limit)))
     (let ((insts (assemble controller-text machine)))
       (install-machine-instruction-sequence! machine insts)
@@ -763,19 +832,28 @@
 
 (export make-machine-load-text)
 
-(define-public (call label . regs)
+(define-public (call label . args)
+  "ARGS are recognised as registers if symbols and constants
+otherwise."
   (append
    (map
-    (lambda (reg)
-      `(stack-push (reg ,reg)))
-    (reverse regs))
-   `((call ,label))
-   (if (not (null? regs))
-       `((assign (reg sp) (op +) (reg sp) (const ,(length regs))))
+    (lambda (arg)
+      `(stack-push
+        ,(cond ((symbol? arg)
+                `(reg ,arg))
+               ((number? arg)
+                `(const ,arg))
+               (else
+                (error "Unknown arg type -- CALL" arg)))))
+    (reverse args))
+   `((call (label ,label)))
+   (if (not (null? args))
+       `((assign (reg sp) (op +) (reg sp) (const ,(length args))))
        '())))
 
 ;;; Test suite
 
+(test-runner-current (test-runner-simple))
 (test-begin "virt-machine-test")
 
 ;;; Test primitive assignment of constant
@@ -1009,7 +1087,7 @@
                                       (assign (reg 0) (const 1))
                                       (ret)
                                       start
-                                      (call sub)))))
+                                      (call (label sub))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
@@ -1023,9 +1101,20 @@
                                       start
                                       (stack-push (const 2))
                                       (stack-push (const 1))
-                                      (call sub)))))
+                                      (call (label sub))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 3))
+
+(let ((machine
+       (make-machine-load-text 4 16 '((goto (label start))
+                                      sub
+                                      (assign (reg 0) (const 1))
+                                      (ret)
+                                      start
+                                      (assign (reg 0) (label sub))
+                                      (call (reg 0))))))
+  (start-machine machine)
+  (test-eqv (get-register-contents (get-machine-register machine 0)) 1))
 
 ;;; Test error
 (let ((machine
@@ -1096,7 +1185,7 @@
           (jne (label base-case))
           (assign (reg rbx) (op -) (reg rax) (const 1)) ; n - 1
           (stack-push (reg rbx))
-          (call factorial)
+          (call (label factorial))
           (stack-pop)
           (assign (reg rbx) (reg ret)) ; (n - 1)!
           (assign (reg ret) (op *) (reg rax) (reg rbx))
@@ -1109,7 +1198,7 @@
           (ret)                         ; return n
           start
           (stack-push (const 5))
-          (call factorial)))))
+          (call (label factorial))))))
   (start-machine machine)
   (test-eqv (get-register-contents (get-machine-register machine 0)) 120))
 
