@@ -101,6 +101,15 @@
 (define (default-register-value-renderer value)
   (format #f "~a" value))
 
+(define (wrap-operator op)
+  "Wrap a numeric operator which may be called with a machine label,
+represented as a pair."
+  (lambda (a b)
+    (if (and (number? a)
+             (number? b))
+        (op a b)
+        0)))
+
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
 ;;; Calling convention: push arguments in reverse order and CALL,
@@ -118,22 +127,14 @@
               (list '+ +)
               (list '- -)
               (list '* *)
-              (list '= =)
+              (list '= (wrap-operator =))
               (list '!= (lambda (a b)
                           (not (= a b))))
               (list '< <)
               (list '<= <=)
               (list '> >)
               (list '>= >=)
-              (list 'logand
-                    (lambda (a b)
-                      ;; Handle case where this operation may be
-                      ;; called on a list of instructions stored on
-                      ;; the stack
-                      (if (and (number? a)
-                               (number? b))
-                          (logand a b)
-                          0)))
+              (list 'logand (wrap-operator logand))
               (list 'logior logior)
               (list 'set-trace
                     (lambda (machine level)
