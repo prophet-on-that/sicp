@@ -101,9 +101,10 @@
 (define (default-register-value-renderer value)
   (format #f "~a" value))
 
-(define (wrap-operator op)
-  "Wrap a numeric operator which may be called with a machine label,
-represented as a pair."
+(define (wrap-binary-predicate op)
+  "Wrap a numeric binary predicate which may be called with a machine label,
+represented as a pair. This would throw an error unless otherwise
+caught."
   (lambda (a b)
     (if (and (number? a)
              (number? b))
@@ -123,26 +124,31 @@ represented as a pair."
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
-        (ops (list
-              (list '+ +)
-              (list '- -)
-              (list '* *)
-              (list '= (wrap-operator =))
-              (list '!= (lambda (a b)
-                          (not (= a b))))
-              (list '< <)
-              (list '<= <=)
-              (list '> >)
-              (list '>= >=)
-              (list 'logand (wrap-operator logand))
-              (list 'logior logior)
-              (list 'set-trace
-                    (lambda (machine level)
-                      (set-machine-trace-all
-                       machine
-                       (cond ((= level 1) 'function-calls)
-                             ((= level 2) 'full)
-                             (else #f)))))))
+        (ops (append
+              (map
+               (lambda (pair)
+                 (list (car pair)
+                       (wrap-binary-predicate (cadr pair))))
+               `((= ,=)
+                 (!= ,(lambda (a b)
+                        (not (= a b))))
+                 (< ,<)
+                 (<= ,<=)
+                 (> ,>)
+                 (>= ,>=)
+                 (logand ,logand)
+                 (logior ,logior)))
+              (list
+               (list '+ +)
+               (list '- -)
+               (list '* *)
+               (list 'set-trace
+                     (lambda (machine level)
+                       (set-machine-trace-all
+                        machine
+                        (cond ((= level 1) 'function-calls)
+                              ((= level 2) 'full)
+                              (else #f))))))))
         (trace #f)
         (call-stack-depth 0))
 
