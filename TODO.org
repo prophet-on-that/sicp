@@ -61,4 +61,17 @@
     - If we decided to not have the machine be aware of the typed
       pointer representation, ~read~ and ~print~ couldn't be
       implemented.
-
+* Error representation
+  - Representing errors as values doesn't work as they are not
+    propagated e.g. ~(cons (+ 'a 1) 2)~ will not raise the
+    error. Also, ~assoc~ doesn't need to return an error and can just
+    return ~#f~, as is the correct Scheme behaviour.
+  - In the absence of a proper exception system, propose having
+    ~make-error~ jump to a configurable error handler:
+    - By default, propagate as a system error
+    - In the interpreter, jump back to the repl
+    - In test code, jump to a custom function to verify the error has
+      been raised.
+    Really need to unwind the stack, however, as otherwise a whole
+    bunch of memory is never reclaimed. Either that or recreate the
+    stack, if possible.
