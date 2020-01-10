@@ -2045,6 +2045,87 @@ array."
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
+    ;; Write a string representation of a value as a character array
+    ;; to memory.
+    ;; Args:
+    ;; 0 - value to stringify
+    ;; 1 - memory address to which to begin writing
+    ;; 2 - first memory address after end of buffer
+    ;; Output: address after the last character written
+    sprint
+    (stack-push (reg rax))
+    (stack-push (reg rbx))
+    (stack-push (reg rcx))
+    (stack-push (reg rdx))
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to stringify
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Memory address to start writing string
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; First memory address after ennd of buffer
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (test (op =) (reg rdx) (const ,number-tag))
+    (jne (label sprint-number))
+    (test (op =) (reg rdx) (const ,symbol-tag))
+    (jne (label sprint-symbol))
+    ,@(call 'pair? 'rax)
+    (jne (label sprint-list))
+    ;; TODO: raise an error
+
+    sprint-number
+    (test (op <) (reg rax) (const 0))
+    (jez (label sprint-number-after-negative-test))
+    (assign (reg rax) (op *) (reg rax) (const -1))
+
+    sprint-number-after-negative-test
+    ;; Push digits in reverse order to stack
+    (assign (reg rcx) (const 0))        ; Count of digits
+
+    sprint-number-push-digit
+    (assign (reg rdx) (op remainder) (reg rax) (const 10)) ; Last digit of the number
+    (stack-push (reg rdx))
+    (assign (reg rcx) (op +) (reg rcx) (const 1))
+    (assign (reg rax) (op quotient) (reg rax) (const 10))
+    (test (op =) (reg rax) (const 0))
+    (jez (label sprint-number-push-digit))
+    ;; Push minus sign to stack if required
+    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to stringify
+    (test (op <) (reg rax) (const 0))
+    (jez (label sprint-number-after-minus-sign))
+    (stack-push (const ,(char->integer #\-)))
+    (assign (reg rcx) (op +) (reg rcx) (const 1))
+
+    sprint-number-after-minus-sign
+    (assign (reg rax) (op +) (reg rbx) (reg rcx))
+    (mem-load (reg rdx) (op +) (reg bp) (const 4)) ; First address after end of buffer
+    (test (op <=) (reg rax) (reg rdx))
+    (jez (label sprint-error))
+
+    (assign (reg rdx) (op +) (reg rbx) (reg rcx)) ; Address after last digit written
+    sprint-number-write-digit
+    (stack-pop (reg rax))
+    (mem-store (reg rbx) (reg rax))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    (test (op <) (reg rbx) (reg rdx))
+    (jne (label sprint-number-write-digit))
+
+    (assign (reg ret) (reg rdx))
+    (goto (label sprint-end))
+
+    sprint-symbol
+    ;; TODO
+
+    sprint-list
+    ;; TODO
+
+    sprint-error
+    ;; TODO
+
+    sprint-end
+    (stack-pop (reg rdx))
+    (stack-pop (reg rcx))
+    (stack-pop (reg rbx))
+    (stack-pop (reg rax))
+    (ret)
+
+    ;; TODO
     _start))
 
 ;;; Utilities

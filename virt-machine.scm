@@ -142,6 +142,8 @@ caught."
                (list '+ +)
                (list '- -)
                (list '* *)
+               (list 'quotient quotient)
+               (list 'remainder remainder)
                (list 'set-trace
                      (lambda (machine level)
                        (set-machine-trace-all
