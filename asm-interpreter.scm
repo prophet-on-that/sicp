@@ -2060,7 +2060,7 @@ array."
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to stringify
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Memory address to start writing string
     (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; First memory address after ennd of buffer
-    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rcx))
+    (assign (reg rdx) (op logand) (const ,tag-mask) (reg rax))
     (test (op =) (reg rdx) (const ,number-tag))
     (jne (label sprint-number))
     (test (op =) (reg rdx) (const ,symbol-tag))
@@ -2070,11 +2070,7 @@ array."
     ;; TODO: raise an error
 
     sprint-number
-    (test (op <) (reg rax) (const 0))
-    (jez (label sprint-number-after-negative-test))
-    (assign (reg rax) (op *) (reg rax) (const -1))
-
-    sprint-number-after-negative-test
+    (assign (reg rax) (op logand) (reg rax) (const ,value-mask))
     ;; Push digits in reverse order to stack
     (assign (reg rcx) (const 0))        ; Count of digits
 
@@ -2085,14 +2081,7 @@ array."
     (assign (reg rax) (op quotient) (reg rax) (const 10))
     (test (op =) (reg rax) (const 0))
     (jez (label sprint-number-push-digit))
-    ;; Push minus sign to stack if required
-    (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to stringify
-    (test (op <) (reg rax) (const 0))
-    (jez (label sprint-number-after-minus-sign))
-    (stack-push (const ,(char->integer #\-)))
-    (assign (reg rcx) (op +) (reg rcx) (const 1))
-
-    sprint-number-after-minus-sign
+    ;; Write digits to memory
     (assign (reg rax) (op +) (reg rbx) (reg rcx))
     (mem-load (reg rdx) (op +) (reg bp) (const 4)) ; First address after end of buffer
     (test (op <=) (reg rax) (reg rdx))
