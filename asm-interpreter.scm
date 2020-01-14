@@ -3997,3 +3997,21 @@ EVAL for magic value not accessible to the programmer"
           #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(test-group
+ "sprint--number--1234"
+ (let* ((max-num-pairs 1024)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (machine
+         (make-test-machine
+          `((assign (reg rax) (const ,(logior number-tag 1234)))
+            (assign (reg rbx) (const ,read-buffer-offset))
+            (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
+            ,@(call 'sprint 'rax 'rbx 'rcx))
+          #:max-num-pairs max-num-pairs)))
+   (set-machine-trace-all machine 'full)
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     (+ read-buffer-offset 4))))
+
+
