@@ -21,6 +21,26 @@
 (define lambda-magic-value (logior magic-value-tag 2))
 (define primitive-magic-value (logior magic-value-tag 3))
 
+;;; Error handling strategy
+;;;
+;;; The routine MAKE-ERROR creates an error value, represented as a
+;;; list beginning with ERROR-MAGIC-VALUE. EVAL will propagate error
+;;; values in its recursive calls, meaning error-handling is achieved
+;;; without continuations/non-local jumps. However, this approach is
+;;; expensive due to:
+;;;
+;;;   * Overhead in checking return values of recursive EVAL calls for
+;;;   errors;
+;;;   * The cost of unwinding the stack one call frame at a time as
+;;;   opposed to simply replacing it.
+;;;
+;;; It is possible to provide a special form to catch errors (and
+;;; subsequently execute conditional code).
+;;;
+;;; Note that some classes of error cannot be caught and immediately
+;;; cause the VM to terminate (e.g. running out of memory needed to
+;;; allocate a cons cell).
+
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
 (define rax 1)
