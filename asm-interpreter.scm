@@ -2204,12 +2204,19 @@ array."
      #:register-value-renderer render-trace-value
      #:stack-limit stack-size)))
 
-(define (test-match-only pattern)
+(define (test-not-matching pattern)
   "Skip test groups not matching the given PATTERN."
   (lambda (runner)
     (and (null? (test-runner-group-stack runner))
          (not (string-match pattern
                             (test-runner-test-name runner))))))
+
+(define (test-matching pattern)
+  "Skip test groups not matching the given PATTERN."
+  (lambda (runner)
+    (and (null? (test-runner-group-stack runner))
+         (string-match pattern
+                       (test-runner-test-name runner)))))
 
 (test-runner-current (test-runner-simple))
 
