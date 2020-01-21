@@ -71,6 +71,16 @@
 (define error-read-unterminated-input 9)
 (define error-read-symbol-bad-start-char 10)
 
+;;; Lisp error codes
+(define lisp-error-assoc-not-found -1)
+(define lisp-error-unbound-variable 0)
+(define lisp-error-application-syntax 1)
+(define lisp-error-eval-unknown-exp-type 2)
+(define lisp-error-eval-lambda-syntax 3)
+(define lisp-error-eval-wrong-type-to-apply 4)
+(define lisp-error-apply-wrong-number-of-args 5)
+(define lisp-error-+-non-numeric-arg 6)
+
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
 
@@ -116,15 +126,6 @@ GROUP-NAME. Modify TARGET-REG during operation."
 (define predefined-symbols
   '("#f"
     "#t"
-    "err:assoc:not-found"
-    "err:unbound-variable"
-    "err:cannot-set-unbound-variable"
-    "err:eval:unknown-exp-type"
-    "err:eval:lambda-syntax"
-    "err:eval:application-syntax"
-    "err:eval:wrong-type-to-apply"
-    "err:apply:wrong-number-of-args"
-    "err:+:non-numeric-arg"
     "if"
     "lambda"
     "cons"
@@ -1022,20 +1023,23 @@ array."
 
     ;; Scheme errors
 
-    ;; Construct a Scheme-level error. Used by internal definitions to
-    ;; signal errors. Represented as a pair where the CAR points to a
-    ;; magic internal value and the CDR points to the given context
-    ;; list.
+    ;; Construct a Lisp-level error. Used by internal definitions to
+    ;; signal errors. Represented as a list where the CAR points to a
+    ;; magic internal value, the CADR points to a numeric error code
+    ;; and the CDDR points an arbitrary value to denote the context.
     ;; Args:
-    ;; 0 - list holding additional information to pass with the error.
+    ;; 0 - numeric error code
+    ;; 0 - arbitrary value to provide further error information
     ;; Output: error value holding a reference to the error list.
     make-error
     (stack-push (reg rax))
     (stack-push (reg rbx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0
+    (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
 
     make-error-entry
-    (assign (reg rbx) (reg rax))
+    ,@(call 'cons 'rax 'rbx)
+    (assign (reg rbx) (reg ret))
     (assign (reg rax) (const ,error-magic-value))
     (stack-push (reg rcx))
     (stack-push (reg rdx))
@@ -1108,10 +1112,8 @@ array."
     (ret)
 
     assoc-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "err:assoc:not-found")))
+    (assign (reg rax) (const ,lisp-error-assoc-not-found))
     (assign (reg rbx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rbx)
-    (assign (reg rax) (reg ret))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
@@ -1177,10 +1179,8 @@ array."
     (goto (label cdr-entry))            ; TCO
 
     lookup-in-frame-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:unbound-variable")
-       'rax)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-unbound-variable))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
 
@@ -1238,10 +1238,8 @@ array."
     (goto (label set-in-frame!-test))
 
     set-in-frame!-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
-       'rax)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-unbound-variable))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1335,10 +1333,8 @@ array."
     (ret)
 
     lookup-in-env-not-found
-    (assign (reg rax) (const ,(get-predefined-symbol-value "err:unbound-variable")))
+    (assign (reg rax) (const ,lisp-error-unbound-variable))
     (assign (reg rbx) (const ,empty-list))
-    ,@(call 'cons 'rax 'rbx)
-    (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1374,10 +1370,8 @@ array."
     (goto (label set-in-env!-test))
 
     set-in-env!-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:cannot-set-unbound-variable")
-       'rax)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-unbound-variable))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1643,9 +1637,8 @@ array."
     (goto (label apply-entry))          ; TCO
 
     eval-error-application-syntax
-    ,@(call-list
-       (get-predefined-symbol-value "err:eval:application-syntax")
-       'rax)
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-application-syntax))
     (goto (label eval-error))
 
     eval-application-error
@@ -1653,7 +1646,6 @@ array."
     (goto (label eval-end))
 
     eval-error
-    (assign (reg rax) (reg ret))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1661,15 +1653,13 @@ array."
     eval-unknown-exp
     ;; TODO: use expression passed to eval instead of RAX, which may
     ;; have been modified.
-    ,@(call-list
-       (get-predefined-symbol-value "err:eval:unknown-exp-type")
-       'rax)
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-eval-unknown-exp-type))
     (goto (label eval-error))
 
     eval-error-lambda-syntax
-    ,@(call-list
-       (get-predefined-symbol-value "err:eval:lambda-syntax")
-       'rax)
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-eval-lambda-syntax))
     (goto (label eval-error))
 
     eval-end
@@ -1854,10 +1844,8 @@ array."
     (jne (label apply-lambda))
 
     apply-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:eval:wrong-type-to-apply")
-       'rax)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg rax))
+    (assign (reg rax) (const ,lisp-error-eval-wrong-type-to-apply))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1881,11 +1869,9 @@ array."
     (goto (label eval-exp-list-entry))  ; TCO
 
     apply-lambda-arg-count-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
-       'rcx                             ; Expected
-       'rbx)                            ; Actual
-    (assign (reg rax) (reg ret))
+    ,@(call 'cons 'rcx 'rbx)            ; (expected . actual)
+    (assign (reg rbx) (reg ret))
+    (assign (reg rax) (const ,lisp-error-apply-wrong-number-of-args))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -1951,12 +1937,7 @@ array."
     (ret)
 
     apply-primitive-arg-count-error
-    ,@(call-list
-       (get-predefined-symbol-value "err:apply:wrong-number-of-args")
-       ;; TODO: add primitive symbol to output
-       'rdx                             ; Expected
-       'rcx)                            ; Actual
-    (assign (reg rax) (reg ret))
+    ,@(call 'cons 'rdx 'rcx)            ; (expected . actual)
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -2057,10 +2038,8 @@ array."
     (ret)
 
     prim-+-not-a-number
-    ,@(call-list
-       (get-predefined-symbol-value "err:+:non-numeric-arg")
-       'rcx)
-    (assign (reg rax) (reg ret))
+    (assign (reg rbx) (reg rcx))
+    (assign (reg rax) (const ,lisp-error-+-non-numeric-arg))
     (stack-pop (reg rdx))
     (stack-pop (reg rcx))
     (goto (label make-error-entry))     ; TCO
@@ -3476,7 +3455,7 @@ array."
  "lib--pair?--error"
  (let ((machine
         (make-test-machine
-         `(,@(call 'make-error empty-list)
+         `(,@(call 'make-error 0 empty-list)
            ,@(call 'pair? 'ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
@@ -3521,7 +3500,7 @@ array."
  "lib--list?--error"
  (let ((machine
         (make-test-machine
-         `(,@(call 'make-error empty-list)
+         `(,@(call 'make-error 0 empty-list)
            ,@(call 'list? ret)))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
@@ -3594,13 +3573,11 @@ array."
     (continue-machine machine)
     (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
-(define* (test-eval-error exp err #:key (trace #f))
-  (let ((error-symbol
-         (get-predefined-symbol-value err)))
-    (test-eval-helper exp
-                      `(,@(call 'cadr 'ret) ; Symbol of the error
-                        (test (op =) (reg ret) (const ,error-symbol)))
-                      #:trace trace)))
+(define* (test-eval-error exp error-code #:key (trace #f))
+  (test-eval-helper exp
+                    `(,@(call 'cadr 'ret) ; Code of the error
+                      (test (op =) (reg ret) (const ,error-code)))
+                    #:trace trace))
 
 (define* (test-eval-raw exp res #:key (trace #f))
   "Like TEST-EVAL, but do not parse RES. Allows testing the result of
@@ -3629,7 +3606,7 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--symbol--error"
- (test-eval-error 'y "err:unbound-variable"))
+ (test-eval-error 'y lisp-error-unbound-variable))
 
 (test-group
  "eval--error--unknown-exp-type"
@@ -3645,7 +3622,7 @@ EVAL for magic value not accessible to the programmer"
  "eval--error--error-input"
  (let* ((machine
          (make-test-machine
-          `(,@(call 'make-error empty-list)
+          `(,@(call 'make-error 0 empty-list)
             ,@(call 'eval 'ret empty-list)
             ,@(call 'is-error? 'ret))
           #:max-num-pairs 1024)))
@@ -3670,31 +3647,31 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--if--no-args"
- (test-eval-error '(if) "err:eval:unknown-exp-type"))
+ (test-eval-error '(if) lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--if--no-consequent"
- (test-eval-error '(if #t) "err:eval:unknown-exp-type"))
+ (test-eval-error '(if #t) lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--if--too-many-args"
- (test-eval-error '(if #t 0 1 2) "err:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 1 2) lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--if--improper-list-consequent"
- (test-eval-error '(if #t . 0) "err:eval:unknown-exp-type"))
+ (test-eval-error '(if #t . 0) lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--if--improper-list-alternative"
- (test-eval-error '(if #t 0 . 1) "err:eval:unknown-exp-type"))
+ (test-eval-error '(if #t 0 . 1) lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--if--propagated-predicate-error"
- (test-eval-error '(if x 1 1) "err:unbound-variable"))
+ (test-eval-error '(if x 1 1) lisp-error-unbound-variable))
 
 (test-group
  "eval--if--propagated-predicate-error-no-alternative"
- (test-eval-error '(if x 1) "err:unbound-variable"))
+ (test-eval-error '(if x 1) lisp-error-unbound-variable))
 
 (test-group
  "eval--lambda--valid-empty-formals"
@@ -3712,27 +3689,27 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--lambda--error-no-formals-or-body"
- (test-eval-error '(lambda) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--lambda--error-no-body"
- (test-eval-error '(lambda ()) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda ()) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--lambda--error-symbol-formals"
- (test-eval-error '(lambda 0 #t) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda 0 #t) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--lambda--error-improper-formals"
- (test-eval-error '(lambda (a . b) #t) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda (a . b) #t) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--lambda--error-improper-body"
- (test-eval-error '(lambda () . #t) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda () . #t) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--lambda--error-improper-body-multiple-statements"
- (test-eval-error '(lambda () #f . #t) "err:eval:lambda-syntax"))
+ (test-eval-error '(lambda () #f . #t) lisp-error-eval-lambda-syntax))
 
 (test-group
  "eval--apply--lambda-no-args"
@@ -3756,27 +3733,27 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--error-non-function"
- (test-eval-error '(1) "err:eval:wrong-type-to-apply"))
+ (test-eval-error '(1) lisp-error-eval-wrong-type-to-apply))
 
 (test-group
  "eval--apply--lambda-error-first-argument"
- (test-eval-error '((lambda (x) x) x) "err:unbound-variable"))
+ (test-eval-error '((lambda (x) x) x) lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--lambda-error-second-argument"
- (test-eval-error '((lambda (x) x) 1 x) "err:unbound-variable"))
+ (test-eval-error '((lambda (x) x) 1 x) lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--lambda-error-body"
- (test-eval-error '((lambda (x) y) 1) "err:unbound-variable"))
+ (test-eval-error '((lambda (x) y) 1) lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--lambda-error-too-many-args"
- (test-eval-error '((lambda () 1) 1) "err:apply:wrong-number-of-args"))
+ (test-eval-error '((lambda () 1) 1) lisp-error-apply-wrong-number-of-args))
 
 (test-group
  "eval--apply--lambda-error-too-few-args"
- (test-eval-error '((lambda (x y) y) 1) "err:apply:wrong-number-of-args"))
+ (test-eval-error '((lambda (x y) y) 1) lisp-error-apply-wrong-number-of-args))
 
 (test-group
  "eval--apply--lambda-non-final-statement-error"
@@ -3785,7 +3762,7 @@ EVAL for magic value not accessible to the programmer"
       y
       1)
     1)
-  "err:unbound-variable"))
+  lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--lambda-final-statement-error"
@@ -3794,7 +3771,7 @@ EVAL for magic value not accessible to the programmer"
       1
       y)
     1)
-  "err:unbound-variable"))
+  lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--lambda-closure"
@@ -3811,19 +3788,19 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--primitive-too-few-arguments"
- (test-eval-error '(cons 1) "err:apply:wrong-number-of-args"))
+ (test-eval-error '(cons 1) lisp-error-apply-wrong-number-of-args))
 
 (test-group
  "eval--apply--primitive-too-many-arguments"
- (test-eval-error '(cons 1 2 3) "err:apply:wrong-number-of-args"))
+ (test-eval-error '(cons 1 2 3) lisp-error-apply-wrong-number-of-args))
 
 (test-group
  "eval--apply--primitive-error-first-arg"
- (test-eval-error '(cons x 2) "err:unbound-variable"))
+ (test-eval-error '(cons x 2) lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--primitive-error-second-arg"
- (test-eval-error '(cons 1 y) "err:unbound-variable"))
+ (test-eval-error '(cons 1 y) lisp-error-unbound-variable))
 
 (test-group
  "eval--apply--primitive-+-no-args"
@@ -3835,7 +3812,7 @@ EVAL for magic value not accessible to the programmer"
 
 (test-group
  "eval--apply--primitive-+-invalid-arg"
- (test-eval-error '(+ 1 #f 3) "err:+:non-numeric-arg"))
+ (test-eval-error '(+ 1 #f 3) lisp-error-+-non-numeric-arg))
 
 (test-group
  "eval--set!--constant"
@@ -3862,31 +3839,31 @@ EVAL for magic value not accessible to the programmer"
       (set! x y)
       x)
     1)
-  "err:unbound-variable"))
+  lisp-error-unbound-variable))
 
 (test-group
  "eval--set!--syntax-error-1"
  (test-eval-error
   '(set!)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--set!--syntax-error-2"
  (test-eval-error
   '(set! x)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--set!--syntax-error-3"
  (test-eval-error
   '(set! (x) 1)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--set!--syntax-error-4"
  (test-eval-error
   '(set! x (+ 1 2) 4)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--define--constant"
@@ -3910,31 +3887,31 @@ EVAL for magic value not accessible to the programmer"
   '(begin
      (define x y)
      x)
-  "err:unbound-variable"))
+  lisp-error-unbound-variable))
 
 (test-group
  "eval--define--syntax-error-1"
  (test-eval-error
   '(define)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--define--syntax-error-2"
  (test-eval-error
   '(define y)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--define--syntax-error-3"
  (test-eval-error
   '(define y 1 1)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "eval--define--syntax-error-4"
  (test-eval-error
   '(define (y 5) 1)
-  "err:eval:unknown-exp-type"))
+  lisp-error-eval-unknown-exp-type))
 
 (test-group
  "lib--reverse--empty-list"
