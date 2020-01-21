@@ -72,7 +72,6 @@
 (define error-read-symbol-bad-start-char 10)
 
 ;;; Lisp error codes
-(define lisp-error-assoc-not-found -1)
 (define lisp-error-unbound-variable 0)
 (define lisp-error-application-syntax 1)
 (define lisp-error-eval-unknown-exp-type 2)
@@ -649,7 +648,7 @@ array."
     ,@(call 'car 'rbx)                  ; Character-trie item alist
     ,@(call 'assoc 'rcx 'ret)
     (assign (reg rdx) (reg ret))
-    ,@(call 'is-error? 'rdx)
+    (test (op =) (reg rdx) (const ,(get-predefined-symbol-value "#f")))
     (jne (label intern-symbol-not-found))
     ,@(call 'cdr 'rdx)
     (assign (reg rbx) (reg ret))
@@ -1083,8 +1082,7 @@ array."
     ;; Args:
     ;; 0 - key
     ;; 1 - alist
-    ;; Output: the pair with the given KEY, or an error value if not
-    ;; found.
+    ;; Output: the pair with the given KEY, or #f if not found.
     assoc
     (stack-push (reg rax))
     (stack-push (reg rbx))
@@ -1106,16 +1104,16 @@ array."
 
     assoc-found
     (assign (reg ret) (reg rcx))
+    (goto (label assoc-end))
+
+    assoc-not-found
+    (assign (reg ret) (const ,(get-predefined-symbol-value "#f")))
+
+    assoc-end
     (stack-pop (reg rcx))
     (stack-pop (reg rbx))
     (stack-pop (reg rax))
     (ret)
-
-    assoc-not-found
-    (assign (reg rax) (const ,lisp-error-assoc-not-found))
-    (assign (reg rbx) (const ,empty-list))
-    (stack-pop (reg rcx))
-    (goto (label make-error-entry))     ; TCO
 
     ;; Args:
     ;; 0  - number of arguments
@@ -1172,7 +1170,7 @@ array."
     ,@(call 'car 'rbx)
     ,@(call 'assoc 'rax 'ret)
     (assign (reg rcx) (reg ret))
-    ,@(call 'is-error? 'rcx)
+    (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "#f")))
     (jne (label lookup-in-frame-error))
     (assign (reg rax) (reg rcx))
     (stack-pop (reg rcx))
@@ -3222,7 +3220,7 @@ array."
          `((assign (reg rax) (const 0))
            (assign (reg rbx) (const ,empty-list))
            ,@(call 'assoc 'rax 'rbx)
-           ,@(call 'is-error? 'ret)))))
+           (test (op =) (reg ret) (const ,(get-predefined-symbol-value "#f")))))))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 1)))
 
