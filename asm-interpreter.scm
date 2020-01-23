@@ -4075,6 +4075,8 @@ EVAL for magic value not accessible to the programmer"
  "sprint--number--1234"
  (let* ((max-num-pairs 1024)
         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (expected-str "1234")
+        (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
         (machine
          (make-test-machine
           `((assign (reg rax) (const ,(logior number-tag 1234)))
@@ -4084,7 +4086,11 @@ EVAL for magic value not accessible to the programmer"
           #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine ret))
-     (+ read-buffer-offset 4))))
+     read-buffer-end)
+   (test-assert
+       (string=?
+        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
+        expected-str))))
 
 (test-group
  "sprint--list--(1 2)"
