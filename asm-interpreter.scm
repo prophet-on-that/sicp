@@ -41,6 +41,12 @@
 ;;; cause the VM to terminate (e.g. running out of memory needed to
 ;;; allocate a cons cell).
 
+;;; Debugging
+;;;
+;;; VM code can control logging output with '(perform set-trace (const
+;;; n))', where n is 0 (no trace), 1 (function calls) or 2 (full
+;;; trace).
+
 ;;; Register aliases
 (define ret 0)                          ; Used for return value
 (define rax 1)
