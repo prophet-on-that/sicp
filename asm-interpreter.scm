@@ -2055,7 +2055,8 @@ array."
     ;; 0 - value to stringify
     ;; 1 - memory address to which to begin writing
     ;; 2 - first memory address after end of buffer
-    ;; Output: address after the last character written
+    ;; Output: address after the last character written, or an error
+    ;; if the buffer is not large enough.
     sprint
     (stack-push (reg rax))
     (stack-push (reg rbx))
@@ -2063,12 +2064,14 @@ array."
     (stack-push (reg rdx))
     (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to stringify
     (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Memory address to start writing string
-    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; First memory address after ennd of buffer
+    (mem-load (reg rcx) (op +) (reg bp) (const 4)) ; First memory address after end of buffer
     (assign (reg rdx) (op logand) (const ,tag-mask) (reg rax))
     (test (op =) (reg rdx) (const ,number-tag))
     (jne (label sprint-number))
     (test (op =) (reg rdx) (const ,symbol-tag))
     (jne (label sprint-symbol))
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label sprint-empty-list))
     ,@(call 'pair? 'rax)
     (jne (label sprint-list))
     ;; TODO: raise an error
@@ -2080,6 +2083,7 @@ array."
 
     sprint-number-push-digit
     (assign (reg rdx) (op remainder) (reg rax) (const 10)) ; Last digit of the number
+    (assign (reg rdx) (op +) (reg rdx) (const ,(char->integer #\0)))
     (stack-push (reg rdx))
     (assign (reg rcx) (op +) (reg rcx) (const 1))
     (assign (reg rax) (op quotient) (reg rax) (const 10))
@@ -2090,8 +2094,8 @@ array."
     (mem-load (reg rdx) (op +) (reg bp) (const 4)) ; First address after end of buffer
     (test (op <=) (reg rax) (reg rdx))
     (jez (label sprint-error))
-
     (assign (reg rdx) (op +) (reg rbx) (reg rcx)) ; Address after last digit written
+
     sprint-number-write-digit
     (stack-pop (reg rax))
     (mem-store (reg rbx) (reg rax))
@@ -2106,6 +2110,56 @@ array."
     ;; TODO
 
     sprint-list
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\()))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+
+    sprint-list-elements
+    ,@(call 'car 'rax)
+    ,@(call 'sprint 'ret 'rbx 'rcx)
+    (assign (reg rbx) (reg ret))
+    ,@(call 'is-error? 'rbx)
+    (jne (label sprint-error))
+    ,@(call 'cdr 'rax)
+    (assign (reg rax) (reg ret))
+    ,@(call 'pair? 'rax)
+    (jne (label sprint-list-elements-continue))
+    (test (op =) (reg rax) (const ,empty-list))
+    (jne (label sprint-list-end-of-list))
+    ;; The list is improper
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\ )))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\.)))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\ )))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    ,@(call 'sprint 'rax 'rbx 'rcx)
+    (assign (reg rbx) (reg ret))
+    ,@(call 'is-error? 'rbx)
+    (jne (label sprint-error))
+
+    sprint-list-end-of-list
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\))))
+    (assign (reg ret) (op +) (reg rbx) (const 1))
+    (goto (label sprint-end))
+
+    sprint-list-elements-continue
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\ )))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    (goto (label sprint-list-elements))
+
+    sprint-empty-list
     ;; TODO
 
     sprint-error
@@ -4032,4 +4086,47 @@ EVAL for magic value not accessible to the programmer"
    (test-eqv (get-register-contents (get-machine-register machine ret))
      (+ read-buffer-offset 4))))
 
+(test-group
+ "sprint--list--(1 2)"
+ (let* ((max-num-pairs 1024)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (expected-str "(1 2)")
+        (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
+        (machine
+         (make-test-machine
+          `(,@(call-list (logior number-tag 1) (logior number-tag 2))
+            (assign (reg rax) (reg ret))
+            (assign (reg rbx) (const ,read-buffer-offset))
+            (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
+            ,@(call 'sprint 'rax 'rbx 'rcx))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     read-buffer-end)
+   (test-assert
+       (string=?
+        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
+        expected-str))))
 
+(test-group
+ "sprint--list--(1 2 . 3)"
+ (let* ((max-num-pairs 1024)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (expected-str "(1 2 . 3)")
+        (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
+        (machine
+         (make-test-machine
+          `(,@(call 'cons (logior number-tag 2) (logior number-tag 3))
+            ,@(call 'cons (logior number-tag 1) 'ret)
+            (assign (reg rax) (reg ret))
+            (assign (reg rbx) (const ,read-buffer-offset))
+            (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
+            ,@(call 'sprint 'rax 'rbx 'rcx))
+          #:max-num-pairs max-num-pairs)))
+   (start-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret))
+     read-buffer-end)
+   (test-assert
+       (string=?
+        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
+        expected-str))))
