@@ -81,6 +81,7 @@
                    (vector-set! memory k val)
                    (error "Index out of range -- SET-MEMORY" k))))
             ((eq? message 'zero) (zero))
+            ((eq? message 'get-vector) memory)
             (else
              (error "Unknown message -- MEMORY" message))))
     dispatch))
@@ -93,6 +94,9 @@
 
 (define-public (zero-memory! memory)
   (memory 'zero))
+
+(define-public (get-memory-vector memory)
+  (memory 'get-vector))
 
 ;;; Machine
 

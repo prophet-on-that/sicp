@@ -3,6 +3,7 @@
 (use-modules (sicp virt-machine)
              (srfi srfi-64)
              (srfi srfi-1)
+             (srfi srfi-43)
              (ice-9 regex))
 
 ;;; Architecture: 32-bit
@@ -4005,6 +4006,16 @@ EVAL for magic value not accessible to the programmer"
           #:max-num-pairs max-num-pairs)))
    (start-machine machine)
    (test-eqv (get-register-contents (get-machine-register machine 'flag)) 0)))
+
+(define (get-memory-slice-as-string machine start-slot end-slot)
+  (list->string
+   (map
+    integer->char
+    (vector->list
+     (vector-copy
+      (get-memory-vector (get-machine-memory machine))
+      start-slot
+      end-slot)))))
 
 (test-group
  "sprint--number--1234"
