@@ -2279,7 +2279,7 @@ array."
 
 (test-runner-current (test-runner-simple))
 
-(test-skip (test-match-only "eval--apply--lambda-closure"))
+(test-skip (test-not-matching "sprint"))
 
 (test-group
  "memory--cons"
@@ -4071,15 +4071,13 @@ EVAL for magic value not accessible to the programmer"
       start-slot
       end-slot)))))
 
-(test-group
- "sprint--number--1234"
- (let* ((max-num-pairs 1024)
+(define (test-sprint expected-str code)
+  (let* ((max-num-pairs 1024)
         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-        (expected-str "1234")
         (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
         (machine
          (make-test-machine
-          `((assign (reg rax) (const ,(logior number-tag 1234)))
+          `(,@code
             (assign (reg rbx) (const ,read-buffer-offset))
             (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
             ,@(call 'sprint 'rax 'rbx 'rcx))
@@ -4091,48 +4089,24 @@ EVAL for magic value not accessible to the programmer"
        (string=?
         (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
         expected-str))))
+
+(test-group
+ "sprint--number--1234"
+ (test-sprint
+  "1234"
+  `((assign (reg rax) (const ,(logior number-tag 1234))))))
 
 (test-group
  "sprint--list--(1 2)"
- (let* ((max-num-pairs 1024)
-        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-        (expected-str "(1 2)")
-        (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
-        (machine
-         (make-test-machine
-          `(,@(call-list (logior number-tag 1) (logior number-tag 2))
-            (assign (reg rax) (reg ret))
-            (assign (reg rbx) (const ,read-buffer-offset))
-            (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
-            ,@(call 'sprint 'rax 'rbx 'rcx))
-          #:max-num-pairs max-num-pairs)))
-   (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine ret))
-     read-buffer-end)
-   (test-assert
-       (string=?
-        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
-        expected-str))))
+ (test-sprint
+  "(1 2)"
+  `(,@(call-list (logior number-tag 1) (logior number-tag 2))
+    (assign (reg rax) (reg ret)))))
 
 (test-group
  "sprint--list--(1 2 . 3)"
- (let* ((max-num-pairs 1024)
-        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
-        (expected-str "(1 2 . 3)")
-        (read-buffer-end (+ read-buffer-offset (string-length expected-str)))
-        (machine
-         (make-test-machine
-          `(,@(call 'cons (logior number-tag 2) (logior number-tag 3))
-            ,@(call 'cons (logior number-tag 1) 'ret)
-            (assign (reg rax) (reg ret))
-            (assign (reg rbx) (const ,read-buffer-offset))
-            (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
-            ,@(call 'sprint 'rax 'rbx 'rcx))
-          #:max-num-pairs max-num-pairs)))
-   (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine ret))
-     read-buffer-end)
-   (test-assert
-       (string=?
-        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
-        expected-str))))
+ (test-sprint
+  "(1 2 . 3)"
+  `(,@(call 'cons (logior number-tag 2) (logior number-tag 3))
+    ,@(call 'cons (logior number-tag 1) 'ret)
+    (assign (reg rax) (reg ret)))))
