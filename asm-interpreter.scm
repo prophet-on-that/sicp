@@ -2160,7 +2160,11 @@ array."
     (goto (label sprint-list-elements))
 
     sprint-empty-list
-    ;; TODO
+    (test (op <) (reg rbx) (reg rcx))
+    (jez (label sprint-error))
+    (mem-store (reg rbx) (const ,(char->integer #\()))
+    (assign (reg rbx) (op +) (reg rbx) (const 1))
+    (goto (label sprint-list-end-of-list))
 
     sprint-error
     ;; TODO
@@ -4095,6 +4099,12 @@ EVAL for magic value not accessible to the programmer"
  (test-sprint
   "1234"
   `((assign (reg rax) (const ,(logior number-tag 1234))))))
+
+(test-group
+ "sprint--empty-list"
+ (test-sprint
+  "()"
+  `((assign (reg rax) (const ,empty-list)))))
 
 (test-group
  "sprint--list--(1 2)"
