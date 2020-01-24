@@ -4096,13 +4096,13 @@ EVAL for magic value not accessible to the programmer"
             (assign (reg rcx) (const ,(+ read-buffer-offset test-read-buffer-size)))
             ,@(call 'sprint 'rax 'rbx 'rcx))
           #:max-num-pairs max-num-pairs)))
-   (start-machine machine)
-   (test-eqv (get-register-contents (get-machine-register machine ret))
-     read-buffer-end)
-   (test-assert
-       (string=?
-        (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
-        expected-str))))
+    (start-machine machine)
+    (test-eqv (get-register-contents (get-machine-register machine ret))
+      read-buffer-end)
+    (test-assert
+        (string=?
+         (get-memory-slice-as-string machine read-buffer-offset read-buffer-end)
+         expected-str))))
 
 (test-group
  "sprint--number--1234"
