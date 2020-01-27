@@ -77,6 +77,7 @@
 (define error-read-list-bad-start-char 8)
 (define error-read-unterminated-input 9)
 (define error-read-symbol-bad-start-char 10)
+(define error-symbol-table-exhausted 11)
 
 ;;; Lisp error codes
 (define lisp-error-unbound-variable 0)
@@ -468,6 +469,19 @@ array."
       ;; Relocate SYMBOL-TRIE-ROOT
       (assign (reg rax) (const ,symbol-trie-root))
       ,@(call 'gc-relocate-pair 'rax)
+      ;; Relocate symbol table
+      (assign (reg rax) (const ,symbol-table-offset))
+      (mem-load (reg rbx) (const ,symbol-counter))
+      (assign (reg rbx) (op +) (reg rbx) (const ,symbol-table-offset))
+
+      gc-relocate-symbol-table-test
+      (test (op <) (reg rax) (reg rbx))
+      (jez (label gc-after-relocate-symbol-table))
+      ,@(call 'gc-relocate-pair 'rax)
+      (assign (reg rax) (op +) (reg rax) (const 1))
+      (goto (label gc-relocate-symbol-table-test))
+
+      gc-after-relocate-symbol-table
       ;; Relocate all pairs on stack
       (assign (reg rax) (reg sp))        ; Stack index pointer
 
@@ -698,13 +712,21 @@ array."
       (test (op =) (reg rcx) (const ,symbol-tag))
       (jne (label intern-symbol-found))
       (mem-load (reg rax) (const ,symbol-counter))
+      (test (op <) (reg rax) (const ,symbol-table-size))
+      (jez (label intern-symbol-out-of-space))
       (assign (reg rcx) (op logior) (const ,symbol-tag) (reg rax))
       ,@(call 'set-cdr! 'rbx 'rcx)
-      ;; TODO: store list of characters in symbol
+      ;; Save symbol character list in symbol table
+      (mem-load (reg rbx) (op +) (reg bp) (const 2)) ; Symbol character list
+      (assign (reg rdx) (op +) (reg rax) (const ,symbol-table-offset))
+      (mem-store (reg rdx) (reg rbx))
       (assign (reg rax) (op +) (reg rax) (const 1))
       (mem-store (const ,symbol-counter) (reg rax))
       (assign (reg ret) (reg rcx))
       (goto (label intern-symbol-end))
+
+      intern-symbol-out-of-space
+      (error (const ,error-symbol-table-exhausted))
 
       intern-symbol-found
       (assign (reg ret) (reg rax))
@@ -2117,7 +2139,25 @@ array."
       (goto (label sprint-end))
 
       sprint-symbol
-      ;; TODO
+      (assign (reg rax) (op logand) (const ,value-mask) (reg rax)) ; Offset into symbol table
+      (assign (reg rax) (op +) (reg rax) (const ,symbol-table-offset))
+      (mem-load (reg rax) (reg rax))
+
+      sprint-symbol-test
+      (test (op =) (reg rax) (const ,empty-list))
+      (jne (label sprint-symbol-end))
+      (test (op <) (reg rbx) (reg rcx))
+      (jez (label sprint-error))
+      ,@(call 'car 'rax)
+      (mem-store (reg rbx) (reg ret))
+      (assign (reg rbx) (op +) (reg rbx) (const 1))
+      ,@(call 'cdr 'rax)
+      (assign (reg rax) (reg ret))
+      (goto (label sprint-symbol-test))
+
+      sprint-symbol-end
+      (assign (reg ret) (reg rbx))
+      (goto (label sprint-end))
 
       sprint-list
       (test (op <) (reg rbx) (reg rcx))
@@ -4129,4 +4169,21 @@ EVAL for magic value not accessible to the programmer"
   "(1 2 . 3)"
   `(,@(call 'cons (logior number-tag 2) (logior number-tag 3))
     ,@(call 'cons (logior number-tag 1) 'ret)
+    (assign (reg rax) (reg ret)))))
+
+(test-group
+ "sprint--symbol--#f"
+ (test-sprint
+  "#f"
+  `((call (label init-predefined-symbols))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "#f"))))))
+
+(test-group
+ "sprint--list--(lambda () #f)"
+ (test-sprint
+  "(lambda () #f)"
+  `((call (label init-predefined-symbols))
+    ,@(call-list (get-predefined-symbol-value "lambda")
+                 empty-list
+                 (get-predefined-symbol-value "#f"))
     (assign (reg rax) (reg ret)))))
