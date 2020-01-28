@@ -87,6 +87,8 @@
 (define lisp-error-eval-wrong-type-to-apply 4)
 (define lisp-error-apply-wrong-number-of-args 5)
 (define lisp-error-+-non-numeric-arg 6)
+(define lisp-error-sprint-unrecognised-type 7)
+(define lisp-error-sprint-out-of-space 8)
 
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
@@ -2109,7 +2111,11 @@ array."
       (jne (label sprint-empty-list))
       ,@(call 'pair? 'rax)
       (jne (label sprint-list))
-      ;; TODO: raise an error
+      (assign (reg rbx) (reg rax))
+      (assign (reg rax) (const ,lisp-error-sprint-unrecognised-type))
+      (stack-pop (reg rdx))
+      (stack-pop (reg rcx))
+      (goto (label make-error-entry))   ; TCO
 
       sprint-number
       (assign (reg rax) (op logand) (reg rax) (const ,value-mask))
@@ -2220,7 +2226,11 @@ array."
       (goto (label sprint-list-end-of-list))
 
       sprint-error
-      ;; TODO
+      (assign (reg rax) (const ,lisp-error-sprint-out-of-space))
+      (assign (reg rbx) (const ,empty-list))
+      (stack-pop (reg rdx))
+      (stack-pop (reg rcx))
+      (goto (label make-error-entry))   ; TCO
 
       sprint-end
       (stack-pop (reg rdx))
@@ -4216,3 +4226,61 @@ EVAL for magic value not accessible to the programmer"
                  empty-list
                  (get-predefined-symbol-value "#f"))
     (assign (reg rax) (reg ret)))))
+
+(define (test-sprint-error read-buffer-size code)
+  "Test that an out of space error is thrown during printing."
+  (let* ((max-num-pairs 1024)
+         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+         (machine
+          (make-test-machine
+           `(,@code
+             (assign (reg rbx) (const ,read-buffer-offset))
+             (assign (reg rcx) (const ,(+ read-buffer-offset read-buffer-size)))
+             ,@(call 'sprint 'rax 'rbx 'rcx)
+             ,@(call 'cadr 'ret))        ; Error code
+           #:max-num-pairs max-num-pairs)))
+    (start-machine machine)
+    (test-eqv (get-register-contents (get-machine-register machine ret))
+      lisp-error-sprint-out-of-space)))
+
+(test-group
+ "sprint--error--number"
+ (test-sprint-error 3 `((assign (reg rax) (const ,(logior number-tag 1234))))))
+
+(test-group
+ "sprint--error--symbol"
+ (test-sprint-error
+  2
+  `((call (label init-predefined-symbols))
+    (assign (reg rax) (const ,(get-predefined-symbol-value "lambda"))))))
+
+(test-group
+ "sprint--error--empty-list--opening-paren"
+ (test-sprint-error 0 `((assign (reg rax) (const ,empty-list)))))
+
+(test-group
+ "sprint--error--empty-list--closing-paren"
+ (test-sprint-error 1 `((assign (reg rax) (const ,empty-list)))))
+
+(define (test-sprint-error-list read-buffer-length)
+  (test-sprint-error
+   read-buffer-length
+   `((call (label init-predefined-symbols))
+     ,@(call-list (get-predefined-symbol-value "#f") (get-predefined-symbol-value "#t"))
+     (assign (reg rax) (reg ret)))))
+
+(test-group
+ "sprint--error--list--opening-paren"
+ (test-sprint-error-list 0))
+
+(test-group
+ "sprint--error--list--element"
+ (test-sprint-error-list 2))
+
+(test-group
+ "sprint--error--list--space"
+ (test-sprint-error-list 3))
+
+(test-group
+ "sprint--error--list-closing"
+ (test-sprint-error-list 6))
