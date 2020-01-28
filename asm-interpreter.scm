@@ -178,11 +178,14 @@ array."
      symbol-table-size
      stack-size))
 
+(define (get-symbol-table-offset read-buffer-offset read-buffer-size)
+  (+ read-buffer-offset read-buffer-size))
+
 (define* (init num-registers max-num-pairs read-buffer-size symbol-table-size stack-size #:key (runtime-checks? #f) (init-symbol-trie? #t))
   "INIT-SYMBOL-TRIE? can be set to false for testing, as it initialises a pair "
   (let* ((read-buffer-offset (get-read-buffer-offset max-num-pairs))
          (memory-size (get-memory-size max-num-pairs read-buffer-size symbol-table-size stack-size))
-         (symbol-table-offset (+ read-buffer-offset read-buffer-size)))
+         (symbol-table-offset (get-symbol-table-offset read-buffer-offset read-buffer-size)))
     `((alias ,ret ret)
       (alias ,rax rax)
       (alias ,rbx rbx)
@@ -3288,10 +3291,10 @@ array."
      (test-assert (not (= rbx-value rcx-value))))))
 
 (test-group
- "gc--symbol-list-preserved"
- ;; Test symbols are preserved after garbage collection
+ "gc--symbol-trie-preserved"
+ ;; Test the symbol trie is preserved after garbage collection
  ;;
- ;; Parse a symbol, trigger GC and check that the symbol list has the
+ ;; Parse a symbol, trigger GC and check that the symbol trie has the
  ;; correct structure.
  (let* ((max-num-pairs 128)
         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
@@ -3324,6 +3327,32 @@ array."
    (test-eqv (get-register-contents (get-machine-register machine rdx)) empty-list)
    (test-eqv (get-register-contents (get-machine-register machine rbx))
      (logior symbol-tag 0))))
+
+(test-group
+ "gc--symbol-table-preserved"
+ ;; Test the symbol table is preserved after garbage collection
+ ;;
+ ;; Parse a symbol, trigger GC and check that the symbol table has the
+ ;; correct structure.
+ (let* ((max-num-pairs 128)
+        (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+        (symbol-table-offset (get-symbol-table-offset read-buffer-offset test-read-buffer-size))
+        (test-char #\a)
+        (exp (list test-char))
+        (machine (make-test-machine
+                  `((assign (reg rax) (const ,read-buffer-offset))
+                    (assign (reg rbx) (const ,(+ read-buffer-offset (length exp))))
+                    ,@(call 'parse-exp 'rax 'rbx)
+                    (call (label gc))
+                    (mem-load (reg rax) (const ,symbol-table-offset))
+                    ,@(call 'car 'rax))
+                  #:max-num-pairs max-num-pairs)))
+   (reset-machine machine)
+   (write-memory (get-machine-memory machine)
+                 read-buffer-offset
+                 (map char->integer exp))
+   (continue-machine machine)
+   (test-eqv (get-register-contents (get-machine-register machine ret)) (char->integer test-char))))
 
 ;;; Environment testing
 
