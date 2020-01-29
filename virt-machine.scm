@@ -154,7 +154,32 @@ caught."
                         machine
                         (cond ((= level 1) 'function-calls)
                               ((= level 2) 'full)
-                              (else #f))))))))
+                              (else #f)))))
+               (list 'read
+                     (lambda (machine read-buffer-offset read-buffer-size)
+                       "Read an expression and write to memory at
+READ-BUFFER-OFFSET, returning the number of characters written. Do not
+write anything and return -1 if input is greater than
+READ-BUFFER-SIZE"
+                       (let ((exp-vec
+                              (list->vector
+                               (map char->integer
+                                    (string->list
+                                     (format #f "~a" (read))))))
+                             (memory-vec
+                              (get-memory-vector (get-machine-memory machine)))
+                             (reg (get-machine-register machine 0)))
+                         (let ((val
+                                (if (> (vector-length exp-vec) read-buffer-size)
+                                    -1
+                                    (begin
+                                      (vector-copy! memory-vec
+                                                    read-buffer-offset
+                                                    exp-vec)
+                                      (vector-length exp-vec)))))
+                           (set-register-contents! reg
+                                                   val
+                                                   (get-machine-call-stack-depth machine)))))))))
         (trace #f)
         (call-stack-depth 0))
 
