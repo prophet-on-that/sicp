@@ -89,6 +89,8 @@
 (define lisp-error-+-non-numeric-arg 6)
 (define lisp-error-sprint-unrecognised-type 7)
 (define lisp-error-sprint-out-of-space 8)
+(define lisp-error-read-buffer-too-small 9)
+(define lisp-error-read-parse-failed 10)
 
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
@@ -1011,6 +1013,8 @@ array."
       (stack-push (reg rbx))
       (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Arg 0 - buffer location
       (mem-load (reg rbx) (op +) (reg bp) (const 3)) ; Arg 1
+
+      parse-exp-entry
       ,@(call 'parse-symbol 'rax 'rbx)
       (test (op =) (reg ret) (const ,parse-failed-value))
       (jez (label parse-exp-end))
@@ -2239,7 +2243,35 @@ array."
       (stack-pop (reg rax))
       (ret)
 
-      ;; TODO
+      ;; Read from stdin and parse as an expression.
+      ;; Output: read expression, or an error if parsing failed or the
+      ;; read buffer was not large enough to hold the entered
+      ;; expression.
+      read
+      (stack-push (reg rax))
+      (stack-push (reg rbx))
+      (perform read (const ,read-buffer-offset) (const ,read-buffer-size))
+      (assign (reg rax) (reg ret))
+      (test (op <) (reg rax) (const 0))
+      (jne (label read-buffer-too-small-error))
+      ,@(call 'parse-exp read-buffer-offset 'rax)
+      (assign (reg rax) (reg ret))
+      (test (op =) (reg rax) (const ,parse-failed-value))
+      (jne (label read-parse-failed))
+      (assign (reg ret) (reg rax))
+      (stack-pop (reg rbx))
+      (stack-pop (reg rax))
+
+      read-buffer-too-small-error
+      (assign (reg rax) (const ,lisp-error-read-buffer-too-small))
+      (assign (reg rbx) (const ,empty-list))
+      (goto (label make-error-entry))   ; TCO
+
+      read-parse-failed
+      (assign (reg rax) (const ,lisp-error-read-parse-failed))
+      (assign (reg rbx) (const ,empty-list))
+      (goto (label make-error-entry))   ; TCO
+
       _start)))
 
 ;;; Utilities
