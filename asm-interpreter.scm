@@ -2243,7 +2243,9 @@ array."
       (stack-pop (reg rax))
       (ret)
 
-      ;; Read from stdin and parse as an expression.
+      ;; Read from stdin and parse as an expression. NOTE: the read
+      ;; buffer will be overwritten (at least partially) by this
+      ;; operation on success.
       ;; Output: read expression, or an error if parsing failed or the
       ;; read buffer was not large enough to hold the entered
       ;; expression.
@@ -2254,13 +2256,12 @@ array."
       (assign (reg rax) (reg ret))
       (test (op <) (reg rax) (const 0))
       (jne (label read-buffer-too-small-error))
+      (assign (reg rax) (op +) (reg rax) (const ,read-buffer-offset))
       ,@(call 'parse-exp read-buffer-offset 'rax)
       (assign (reg rax) (reg ret))
       (test (op =) (reg rax) (const ,parse-failed-value))
       (jne (label read-parse-failed))
-      (assign (reg ret) (reg rax))
-      (stack-pop (reg rbx))
-      (stack-pop (reg rax))
+      (goto (label car-entry))
 
       read-buffer-too-small-error
       (assign (reg rax) (const ,lisp-error-read-buffer-too-small))
@@ -2271,6 +2272,66 @@ array."
       (assign (reg rax) (const ,lisp-error-read-parse-failed))
       (assign (reg rbx) (const ,empty-list))
       (goto (label make-error-entry))   ; TCO
+
+      ;; Print an expression to stdout. NOTE: the read buffer will be
+      ;; overwritten (at least partially) by this operation.
+      ;; Args:
+      ;; 0 - value to print to stdout
+      ;; Output: error on failure, otherwise unspecified.
+      print
+      (stack-push (reg rax))
+      (mem-load (reg rax) (op +) (reg bp) (const 2)) ; Value to print
+      ,@(call 'sprint 'rax read-buffer-offset (+ read-buffer-offset read-buffer-size))
+      (assign (reg rax) (reg ret))
+      ,@(call 'is-error? 'rax)
+      (jne (label print-error))
+      (perform print (const ,read-buffer-offset) (reg rax))
+
+      print-end
+      (stack-pop (reg rax))
+      (ret)
+
+      print-error
+      (assign (reg ret) (reg rax))
+      (goto (label print-end))
+
+      repl
+      (call (label init-predefined-symbols))
+      (call (label get-initial-env))
+      (assign (reg rax) (reg ret)) ; Env
+
+      repl-loop
+      ;; Print prompt
+      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\>)))
+      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
+      (mem-store (reg rbx) (const ,(char->integer #\ )))
+      (assign (reg rbx) (op +) (reg rbx) (const 1))
+      (perform print (const ,read-buffer-offset) (reg rbx))
+      (call (label read))
+      (assign (reg rbx) (reg ret))
+      ,@(call 'is-error? 'rbx)
+      (jne (label repl-error))
+      ,@(call 'eval 'rbx 'rax)
+      (assign (reg rbx) (reg ret))
+      ,@(call 'is-error? 'rbx)
+      (jne (label repl-error))
+      ,@(call 'print 'rbx)
+      (assign (reg rbx) (reg ret))
+      ,@(call 'is-error? 'rbx)
+      (jne (label repl-error))
+      ;; Print newline
+      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\newline)))
+      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
+      (perform print (const ,read-buffer-offset) (reg rbx))
+      (goto (label repl-loop))
+
+      repl-error
+      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\E)))
+      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
+      (mem-store (reg rbx) (const ,(char->integer #\newline)))
+      (assign (reg rbx) (op +) (reg rbx) (const 1))
+      (perform print (const ,read-buffer-offset) (reg rbx))
+      (goto (label repl-loop))
 
       _start)))
 
@@ -4316,3 +4377,14 @@ EVAL for magic value not accessible to the programmer"
 (test-group
  "sprint--error--list-closing"
  (test-sprint-error-list 6))
+
+(define (repl)
+  (let* ((max-num-pairs 1024)
+         (read-buffer-offset (get-read-buffer-offset max-num-pairs))
+         (machine
+          (make-test-machine
+           `((call (label repl)))
+           #:max-num-pairs max-num-pairs)))
+    (start-machine machine)))
+
+
