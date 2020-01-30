@@ -179,7 +179,20 @@ READ-BUFFER-SIZE"
                                       (vector-length exp-vec)))))
                            (set-register-contents! reg
                                                    val
-                                                   (get-machine-call-stack-depth machine)))))))))
+                                                   (get-machine-call-stack-depth machine))))))
+               (list 'print
+                     (lambda (machine buffer-start buffer-end)
+                       "Write a given character buffer [BUFFER-START,
+BUFFER-END) to stdout."
+                       (format #t "~a"
+                               (list->string
+                                (map integer->char
+                                     (vector->list
+                                      (vector-copy
+                                       (get-memory-vector
+                                        (get-machine-memory machine))
+                                       buffer-start
+                                       buffer-end))))))))))
         (trace #f)
         (call-stack-depth 0))
 
