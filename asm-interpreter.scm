@@ -185,11 +185,29 @@ array."
 (define (get-symbol-table-offset read-buffer-offset read-buffer-size)
   (+ read-buffer-offset read-buffer-size))
 
+(define (print-str-code str read-buffer-offset read-buffer-size)
+  (if (<= (string-length str) read-buffer-size)
+      `((stack-push (reg rax))
+        (assign (reg rax) (const ,read-buffer-offset))
+        ,@(append-map
+           (lambda (char)
+             `((mem-store (reg rax) (const ,char))
+               (assign (reg rax) (op +) (reg rax) (const 1))))
+           (map
+            char->integer
+            (string->list str)))
+        (perform print (const ,read-buffer-offset) (reg rax))
+        (stack-pop (reg rax)))
+      (error "String too long -- PRINT-STR" str read-buffer-size)))
+
 (define* (init num-registers max-num-pairs read-buffer-size symbol-table-size stack-size #:key (runtime-checks? #f) (init-symbol-trie? #t))
   "INIT-SYMBOL-TRIE? can be set to false for testing, as it initialises a pair "
   (let* ((read-buffer-offset (get-read-buffer-offset max-num-pairs))
          (memory-size (get-memory-size max-num-pairs read-buffer-size symbol-table-size stack-size))
-         (symbol-table-offset (get-symbol-table-offset read-buffer-offset read-buffer-size)))
+         (symbol-table-offset (get-symbol-table-offset read-buffer-offset read-buffer-size))
+         (print-str
+          (lambda (str)
+            (print-str-code str read-buffer-offset read-buffer-size))))
     `((alias ,ret ret)
       (alias ,rax rax)
       (alias ,rbx rbx)
@@ -2301,12 +2319,7 @@ array."
       (assign (reg rax) (reg ret)) ; Env
 
       repl-loop
-      ;; Print prompt
-      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\>)))
-      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
-      (mem-store (reg rbx) (const ,(char->integer #\ )))
-      (assign (reg rbx) (op +) (reg rbx) (const 1))
-      (perform print (const ,read-buffer-offset) (reg rbx))
+      ,@(print-str "> ")
       (call (label read))
       (assign (reg rbx) (reg ret))
       ,@(call 'is-error? 'rbx)
@@ -2319,18 +2332,11 @@ array."
       (assign (reg rbx) (reg ret))
       ,@(call 'is-error? 'rbx)
       (jne (label repl-error))
-      ;; Print newline
-      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\newline)))
-      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
-      (perform print (const ,read-buffer-offset) (reg rbx))
+      ,@(print-str "\n")
       (goto (label repl-loop))
 
       repl-error
-      (mem-store (const ,read-buffer-offset) (const ,(char->integer #\E)))
-      (assign (reg rbx) (op +) (const ,read-buffer-offset) (const 1))
-      (mem-store (reg rbx) (const ,(char->integer #\newline)))
-      (assign (reg rbx) (op +) (reg rbx) (const 1))
-      (perform print (const ,read-buffer-offset) (reg rbx))
+      ,@(print-str "ERROR\n")
       (goto (label repl-loop))
 
       _start)))
