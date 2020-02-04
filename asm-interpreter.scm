@@ -92,6 +92,47 @@
 (define lisp-error-read-buffer-too-small 9)
 (define lisp-error-read-parse-failed 10)
 
+(define lisp-errors
+  '((unbound-variable . "Unbound variable")
+    (unknown-application-syntax . "Unknown application syntax")
+    (eval-unknown-exp-type . "Unknown expression type")
+    (eval-unknown-lambda-syntax . "Unknown lambda syntax")
+    (eval-wrong-type-to-apply . "Wrong type to apply")
+    (apply-wrong-number-of-args . "Wrong number of arguments")
+    (+-non-numeric-arg . "Non-numeric argument to '+'")
+    (sprint-unrecognised-type . "Cannot print unknown type")
+    (sprint-out-of-space . "Read buffer too small to print expression")
+    (read-buffer-too-small . "Read buffer too small when reading expression")
+    (read-parse-failed . "Parsing of read string failed")))
+
+(define static-strings
+  (append
+   lisp-errors
+   '((repl-prompt . "> ")
+     (newline . "\n")
+     (error . "ERROR\n"))))
+
+(define (gen-static-string-code offset)
+  (let ((chars
+         (string->list
+          (fold-right string-append ""
+                (map cdr static-strings)))))
+    (map
+     (lambda (elem)
+       `(mem-store (const ,(car elem)) (const ,(char->integer (cadr elem)))))
+     (zip (iota (length chars) offset)
+          chars))))
+
+(define (get-static-string-offset symbol offset)
+  (define (helper symbol-list offset)
+    (if (null? symbol-list)
+        (error "Symbol not found -- GET-STATIC-STRING-OFFSET" symbol)
+        (let ((entry (car symbol-list)))
+          (if (eq? (car entry) symbol)
+              (list offset (+ offset (string-length (cdr entry))))
+              (helper (cdr symbol-list) (+ offset (string-length (cdr entry))))))))
+  (helper static-strings offset))
+
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
 
@@ -180,6 +221,12 @@ array."
      (* 4 max-num-pairs)
      read-buffer-size
      symbol-table-size
+     ;; Static strings length
+     (fold
+      (lambda (elem count)
+        (+ count (string-length (cdr elem))))
+      0
+      static-strings)
      stack-size))
 
 (define (get-symbol-table-offset read-buffer-offset read-buffer-size)
@@ -205,9 +252,12 @@ array."
   (let* ((read-buffer-offset (get-read-buffer-offset max-num-pairs))
          (memory-size (get-memory-size max-num-pairs read-buffer-size symbol-table-size stack-size))
          (symbol-table-offset (get-symbol-table-offset read-buffer-offset read-buffer-size))
-         (print-str
-          (lambda (str)
-            (print-str-code str read-buffer-offset read-buffer-size))))
+         (static-strings-offset (+ symbol-table-offset symbol-table-size))
+         (print-static-string
+          (lambda (symbol)
+            (let ((range
+                   (get-static-string-offset symbol static-strings-offset)))
+              `(perform print (const ,(car range)) (const ,(cadr range)))))))
     `((alias ,ret ret)
       (alias ,rax rax)
       (alias ,rbx rbx)
@@ -258,6 +308,9 @@ array."
                  (offset (+ n char-table-offset)))
              `(mem-store (const ,offset) (const ,bitmask))))
          (iota char-table-size))
+
+      ;; Initialise static strings
+      ,@(gen-static-string-code static-strings-offset)
 
       (goto (label _start))
 
@@ -2319,7 +2372,7 @@ array."
       (assign (reg rax) (reg ret)) ; Env
 
       repl-loop
-      ,@(print-str "> ")
+      ,(print-static-string 'repl-prompt)
       (call (label read))
       (assign (reg rbx) (reg ret))
       ,@(call 'is-error? 'rbx)
