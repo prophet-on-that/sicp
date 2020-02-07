@@ -56,6 +56,15 @@
 (define rdx 4)
 
 ;;; Memory layout
+;;; * Global variables
+;;; * Char table
+;;; * Pairs arrays (inc. region for GC)
+;;; * IO buffer
+;;; * Symbol table (used for printing symbols)
+;;; * Static strings
+;;; * Lisp error message map
+;;; * Stack
+
 (define the-cars-pointer 0)
 (define the-cdrs-pointer 1)
 (define free-pair-pointer 2)            ; Next unassigned index into the pairs arrays
