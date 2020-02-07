@@ -4495,5 +4495,3 @@ EVAL for magic value not accessible to the programmer"
            #:max-num-pairs max-num-pairs
            #:stack-size 1024)))
     (start-machine machine)))
-
-
