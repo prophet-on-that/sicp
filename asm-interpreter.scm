@@ -2406,6 +2406,7 @@ array."
       (goto (label print-end))
 
       repl
+      ;; TODO: save registers
       (call (label init-predefined-symbols))
       (call (label get-initial-env))
       (assign (reg rax) (reg ret)) ; Env
