@@ -217,7 +217,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "ok"
     "set!"
     "define"
-    "begin"))
+    "begin"
+    "quote"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1698,6 +1699,8 @@ array."
       (jne (label eval-define))
       (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "begin")))
       (jne (label eval-begin))
+      (test (op =) (reg rcx) (const ,(get-predefined-symbol-value "quote")))
+      (jne (label eval-quote))
       (goto (label eval-application))
 
       eval-number
@@ -1976,6 +1979,18 @@ array."
       ,@(call 'cdr 'rax)
       (assign (reg rax) (reg ret))
       (goto (label eval-exp-list-entry)) ; TCO
+
+      eval-quote
+      ,@(call 'cdr 'rax)
+      (assign (reg rax) (reg ret))
+      ,@(call 'pointer-to-pair? 'rax)
+      (jez (label eval-unknown-exp))
+      ,@(call 'cdr 'rax)
+      (test (op =) (reg ret) (const ,empty-list))
+      (jez (label eval-unknown-exp))
+      (stack-pop (reg rdx))
+      (stack-pop (reg rcx))
+      (goto (label car-entry))          ; TCO
 
       ;; Args:
       ;; 0 - Lambda or primitive
@@ -4271,6 +4286,30 @@ EVAL for magic value not accessible to the programmer"
  "eval--define--syntax-error-4"
  (test-eval-error
   '(define (y 5) 1)
+  (get-lisp-error-code 'eval-unknown-exp-type)))
+
+(test-group
+ "eval--quote--number"
+ (test-eval
+  '(quote 0)
+  0))
+
+(test-group
+ "eval--quote--symbol"
+ (test-eval
+  '(quote quote)
+  'quote))
+
+(test-group
+ "eval--quote--syntax-error-1"
+ (test-eval-error
+  '(quote a b)
+  (get-lisp-error-code 'eval-unknown-exp-type)))
+
+(test-group
+ "eval--quote--syntax-error-2"
+ (test-eval-error
+  '(quote)
   (get-lisp-error-code 'eval-unknown-exp-type)))
 
 (test-group
