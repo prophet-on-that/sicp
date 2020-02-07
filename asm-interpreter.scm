@@ -107,7 +107,7 @@
    lisp-errors
    '((repl-prompt . "> ")
      (newline . "\n")
-     (error . "ERROR\n"))))
+     (colon-space . ": "))))
 
 (define (gen-static-string-code offset)
   (let ((chars
@@ -129,6 +129,32 @@
               (list offset (+ offset (string-length (cdr entry))))
               (helper (cdr symbol-list) (+ offset (string-length (cdr entry))))))))
   (helper static-strings offset))
+
+(define (gen-error-message-map-code map-offset static-strings-offset)
+  "Define region of memory to hold offsets into static strings for the
+purposes of printing error messages. Size would be one more than the
+length of the lisp error array."
+  (let ((error-offsets
+         (fold
+          (lambda (elem prev)
+            (let ((string-offset (car prev))
+                  (index (cadr prev))
+                  (code (caddr prev))
+                  (error-str (cdr elem)))
+              (list
+               (+ (string-length error-str) string-offset)
+               (1+ index)
+               (cons
+                `(mem-store (const ,index) (const ,string-offset))
+                code))))
+          (list static-strings-offset map-offset '())
+          lisp-errors)))
+    (let ((final-offset (car error-offsets))
+          (final-index (cadr error-offsets))
+          (code (caddr error-offsets)))
+      (cons
+       `(mem-store (const ,final-index) (const ,final-offset))
+       code))))
 
 (define (get-read-buffer-offset max-num-pairs)
   (+ the-cars-offset (* 4 max-num-pairs)))
@@ -213,17 +239,20 @@ array."
 
 (define var-args-param-count -1)
 
+(define static-strings-size
+  (fold
+   (lambda (elem count)
+     (+ count (string-length (cdr elem))))
+   0
+   static-strings))
+
 (define (get-memory-size max-num-pairs read-buffer-size symbol-table-size stack-size)
   (+ the-cars-offset
      (* 4 max-num-pairs)
      read-buffer-size
      symbol-table-size
-     ;; Static strings length
-     (fold
-      (lambda (elem count)
-        (+ count (string-length (cdr elem))))
-      0
-      static-strings)
+     static-strings-size
+     (1+ (length lisp-errors))          ; Error message map
      stack-size))
 
 (define (get-symbol-table-offset read-buffer-offset read-buffer-size)
@@ -250,6 +279,7 @@ array."
          (memory-size (get-memory-size max-num-pairs read-buffer-size symbol-table-size stack-size))
          (symbol-table-offset (get-symbol-table-offset read-buffer-offset read-buffer-size))
          (static-strings-offset (+ symbol-table-offset symbol-table-size))
+         (error-message-map-offset (+ static-strings-offset static-strings-size))
          (print-static-string
           (lambda (symbol)
             (let ((range
@@ -308,6 +338,9 @@ array."
 
       ;; Initialise static strings
       ,@(gen-static-string-code static-strings-offset)
+
+      ;; Initialise error message map
+      ,@(gen-error-message-map-code error-message-map-offset static-strings-offset)
 
       (goto (label _start))
 
@@ -2386,7 +2419,16 @@ array."
       (goto (label repl-loop))
 
       repl-error
-      ,(print-static-string 'error)
+      ,@(call 'cadr 'rbx)               ; Error message code
+      (assign (reg rcx) (op +) (const ,error-message-map-offset) (reg ret))
+      (mem-load (reg rdx) (reg rcx))    ; Inclusive start of the error message
+      (assign (reg rcx) (op +) (reg rcx) (const 1))
+      (mem-load (reg rcx) (reg rcx))    ; Exclusive end of the error message
+      (perform print (reg rdx) (reg rcx))
+      ,(print-static-string 'colon-space)
+      ,@(call 'cddr 'rbx)               ; Error message context
+      ,@(call 'print 'ret)
+      ,(print-static-string 'newline)
       (goto (label repl-loop))
 
       _start)))
