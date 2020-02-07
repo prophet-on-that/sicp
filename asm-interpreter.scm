@@ -4492,7 +4492,8 @@ EVAL for magic value not accessible to the programmer"
          (machine
           (make-test-machine
            `((call (label repl)))
-           #:max-num-pairs max-num-pairs)))
+           #:max-num-pairs max-num-pairs
+           #:stack-size 1024)))
     (start-machine machine)))
 
 
