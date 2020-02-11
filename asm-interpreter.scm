@@ -218,7 +218,8 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "set!"
     "define"
     "begin"
-    "quote"))
+    "quote"
+    "eq?"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1576,6 +1577,13 @@ array."
       ,@(call 'make-primitive var-args-param-count 'rcx)
       ,@(call 'cons 'ret 'rbx)
       (assign (reg rbx) (reg ret))
+      ;; eq?
+      ,@(call 'cons (get-predefined-symbol-value "eq?") 'rax)
+      (assign (reg rax) (reg ret))
+      (assign (reg rcx) (label prim-eq?))
+      ,@(call 'make-primitive 2 'rcx)
+      ,@(call 'cons 'ret 'rbx)
+      (assign (reg rbx) (reg ret))
       ;; Extend env
       ,@(call 'extend-env 'rax 'rbx empty-list) ; TODO: TCO
       (stack-pop (reg rcx))
@@ -2176,6 +2184,27 @@ array."
       (stack-pop (reg rbx))
       (stack-pop (reg rax))
       (ret)
+
+      ;; Args:
+      ;; 0 - object
+      ;; 1 - object
+      prim-eq?
+      (stack-push (reg rax))
+      (stack-push (reg rbx))
+      (mem-load (reg rax) (op +) (reg bp) (const 2))
+      (mem-load (reg rbx) (op +) (reg bp) (const 3))
+      (test (op =) (reg rax) (reg rbx))
+      (jez (label prim-eq?-ne))
+      (assign (reg ret) (const ,(get-predefined-symbol-value "#t")))
+
+      prim-eq?-end
+      (stack-pop (reg rbx))
+      (stack-pop (reg rax))
+      (ret)
+
+      prim-eq?-ne
+      (assign (reg ret) (const ,(get-predefined-symbol-value "#f")))
+      (goto (label prim-eq?-end))
 
       ;; Args:
       ;; 0 - Number of other arguments to the function
