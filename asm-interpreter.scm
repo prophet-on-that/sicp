@@ -2238,13 +2238,44 @@ array."
       (jne (label sprint-symbol))
       (test (op =) (reg rax) (const ,empty-list))
       (jne (label sprint-empty-list))
-      ,@(call 'pair? 'rax)
-      (jne (label sprint-list))
+      ,@(call 'pointer-to-pair? 'rax)
+      (jez (label sprint-unrecognised-type))
+      ,@(call 'car 'rax)
+      (test (op =) (reg ret) (const ,lambda-magic-value))
+      (jne (label sprint-lambda))
+      (test (op =) (reg ret) (const ,primitive-magic-value))
+      (jne (label sprint-primitive))
+      (assign (reg ret) (op logand) (const ,tag-mask) (reg ret))
+      (test (op =) (reg ret) (const ,magic-value-tag))
+      (jne (label sprint-unrecognised-type))
+      (goto (label sprint-list))
+
+      sprint-unrecognised-type
       (assign (reg rbx) (reg rax))
       (assign (reg rax) (const ,(get-lisp-error-code 'sprint-unrecognised-type)))
       (stack-pop (reg rdx))
       (stack-pop (reg rcx))
       (goto (label make-error-entry))   ; TCO
+
+      ,@(let ((gen-code
+               (lambda (str)
+                 `((assign (reg ret) (op +) (reg rbx) (const ,(string-length str)))
+                   (test (op <) (reg ret) (reg rcx))
+                   (jez (label sprint-error))
+                   ,@(append-map
+                      (lambda (char)
+                        `((mem-store (reg rbx) (const ,char))
+                          (assign (reg rbx) (op +) (reg rbx) (const 1))))
+                      (map
+                       char->integer
+                       (string->list str)))
+                   (assign (reg ret) (reg rbx))
+                   (goto (label sprint-end))))))
+          `(sprint-lambda
+            ,@(gen-code "<lambda>")
+
+            sprint-primitive
+            ,@(gen-code "<primitive>")))
 
       sprint-number
       (assign (reg rax) (op logand) (reg rax) (const ,value-mask))
