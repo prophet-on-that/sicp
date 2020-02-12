@@ -219,7 +219,10 @@ GROUP-NAME. Modify TARGET-REG during operation."
     "define"
     "begin"
     "quote"
-    "eq?"))
+    "eq?"
+    "set-trace"
+    "full"
+    "functions-only"))
 
 (define (intern-symbol-code symbol-str)
   (append
@@ -1584,6 +1587,13 @@ array."
       ,@(call 'make-primitive 2 'rcx)
       ,@(call 'cons 'ret 'rbx)
       (assign (reg rbx) (reg ret))
+      ;; set-trace
+      ,@(call 'cons (get-predefined-symbol-value "set-trace") 'rax)
+      (assign (reg rax) (reg ret))
+      (assign (reg rcx) (label prim-set-trace))
+      ,@(call 'make-primitive 1 'rcx)
+      ,@(call 'cons 'ret 'rbx)
+      (assign (reg rbx) (reg ret))
       ;; Extend env
       ,@(call 'extend-env 'rax 'rbx empty-list) ; TODO: TCO
       (stack-pop (reg rcx))
@@ -2243,6 +2253,30 @@ array."
       (stack-pop (reg rdx))
       (stack-pop (reg rcx))
       (goto (label make-error-entry))    ; TCO
+
+      ;; Args:
+      ;; 0 - symbol setting trace level
+      prim-set-trace
+      (stack-push (reg rax))
+      (mem-load (reg rax) (op +) (reg bp) (const 2))
+      (test (op =) (reg rax) (const ,(get-predefined-symbol-value "full")))
+      (jne (label prim-set-trace-full))
+      (test (op =) (reg rax) (const ,(get-predefined-symbol-value "functions-only")))
+      (jne (label prim-set-trace-functions-only))
+      (assign (reg rax) (const 0))
+
+      prim-set-trace-end
+      (perform set-trace (reg rax))
+      (stack-pop (reg rax))
+      (ret)
+
+      prim-set-trace-full
+      (assign (reg rax) (const 2))
+      (goto (label prim-set-trace-end))
+
+      prim-set-trace-functions-only
+      (assign (reg rax) (const 1))
+      (goto (label prim-set-trace-end))
 
       ;; Write a string representation of a value as a character array
       ;; to memory.
