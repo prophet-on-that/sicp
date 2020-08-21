@@ -81,6 +81,7 @@
                    (vector-set! memory k val)
                    (error "Index out of range -- SET-MEMORY" k))))
             ((eq? message 'zero) (zero))
+            ((eq? message 'get-vector) memory)
             (else
              (error "Unknown message -- MEMORY" message))))
     dispatch))
@@ -94,12 +95,25 @@
 (define-public (zero-memory! memory)
   (memory 'zero))
 
+(define-public (get-memory-vector memory)
+  (memory 'get-vector))
+
 ;;; Machine
 
 (define initial-register-value -1)
 
 (define (default-register-value-renderer value)
   (format #f "~a" value))
+
+(define (wrap-binary-predicate op)
+  "Wrap a numeric binary predicate which may be called with a machine label,
+represented as a pair. This would throw an error unless otherwise
+caught."
+  (lambda (a b)
+    (if (and (number? a)
+             (number? b))
+        (op a b)
+        0)))
 
 ;;; User programs can interact directly with all registers except FLAG.
 ;;;
@@ -114,34 +128,71 @@
         (registers (make-vector n-registers))
         (memory (make-memory n-memory-slots))
         (instruction-sequence '())
-        (ops (list
-              (list '+ +)
-              (list '- -)
-              (list '* *)
-              (list '= =)
-              (list '!= (lambda (a b)
-                          (not (= a b))))
-              (list '< <)
-              (list '<= <=)
-              (list '> >)
-              (list '>= >=)
-              (list 'logand
-                    (lambda (a b)
-                      ;; Handle case where this operation may be
-                      ;; called on a list of instructions stored on
-                      ;; the stack
-                      (if (and (number? a)
-                               (number? b))
-                          (logand a b)
-                          0)))
-              (list 'logior logior)
-              (list 'set-trace
-                    (lambda (machine level)
-                      (set-machine-trace-all
-                       machine
-                       (cond ((= level 1) 'function-calls)
-                             ((= level 2) 'full)
-                             (else #f)))))))
+        (ops (append
+              (map
+               (lambda (pair)
+                 (list (car pair)
+                       (wrap-binary-predicate (cadr pair))))
+               `((= ,=)
+                 (!= ,(lambda (a b)
+                        (not (= a b))))
+                 (< ,<)
+                 (<= ,<=)
+                 (> ,>)
+                 (>= ,>=)
+                 (logand ,logand)
+                 (logior ,logior)))
+              (list
+               (list '+ +)
+               (list '- -)
+               (list '* *)
+               (list 'quotient quotient)
+               (list 'remainder remainder)
+               (list 'set-trace
+                     (lambda (machine level)
+                       (set-machine-trace-all
+                        machine
+                        (cond ((= level 1) 'function-calls)
+                              ((= level 2) 'full)
+                              (else #f)))))
+               (list 'read
+                     (lambda (machine read-buffer-offset read-buffer-size)
+                       "Read an expression and write to memory at
+READ-BUFFER-OFFSET, returning the number of characters written. Do not
+write anything and return -1 if input is greater than
+READ-BUFFER-SIZE"
+                       (let ((exp-vec
+                              (list->vector
+                               (map char->integer
+                                    (string->list
+                                     (format #f "~a" (read))))))
+                             (memory-vec
+                              (get-memory-vector (get-machine-memory machine)))
+                             (reg (get-machine-register machine 0)))
+                         (let ((val
+                                (if (> (vector-length exp-vec) read-buffer-size)
+                                    -1
+                                    (begin
+                                      (vector-copy! memory-vec
+                                                    read-buffer-offset
+                                                    exp-vec)
+                                      (vector-length exp-vec)))))
+                           (set-register-contents! reg
+                                                   val
+                                                   (get-machine-call-stack-depth machine))))))
+               (list 'print
+                     (lambda (machine buffer-start buffer-end)
+                       "Write a given character buffer [BUFFER-START,
+BUFFER-END) to stdout."
+                       (format #t "~a"
+                               (list->string
+                                (map integer->char
+                                     (vector->list
+                                      (vector-copy
+                                       (get-memory-vector
+                                        (get-machine-memory machine))
+                                       buffer-start
+                                       buffer-end))))))))))
         (trace #f)
         (call-stack-depth 0))
 
