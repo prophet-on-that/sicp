@@ -75,3 +75,66 @@
     Really need to unwind the stack, however, as otherwise a whole
     bunch of memory is never reclaimed. Either that or recreate the
     stack, if possible.
+* +Changing how errors work+
+  - Change assoc to return ~#f~ if not found and the pair if found.
+  - Remove ~lookup-in-frame~, which is equivalent to ~car~ then
+    ~assoc~.
+  - Get ~lookup-in-env~ to return an error code instead of a symbol,
+    and remove the symbol.
+  - Change test case by assigning a test error handler and asserting
+    that it is called.
+  - Change all other uses of ~make-error~.
+* Print
+  1. Complete definition of SPRINT
+     - Symbols:
+       - Store list of lists of characters, with offset into list
+         being the list of characters of a symbol. Valid as symbols
+         are never deleted. Inefficient linear-time lookup - better to
+         use continuously-allocated memory but unclear whether this
+         should be fixed-size or not and how to handle variable-length
+         symbols.
+     - Lists (when value is a pair):
+       1. Print ~(~
+       2. Sprint CAR
+       3. If CDR is a pair, print ~ ~ and GOTO #2
+       4. Elif CDR is the empty list, print ~)~
+       5. Else print ~ . ~ sprint CDR then print ~)~
+     - Tests:
+       1. sprint beyond end of buffer throws an error
+       2. Sprint with no space throws an error
+       3. Nested sprint error throws an error (run out of space
+          half-way through a nested int)
+       4.
+* TODO test READ
+* TODO REPL [3/7]
+  - [X] Print messages on error
+    - Store string messages in static area of memory, plus index into
+      this for fast access.
+  - [X] Implement quote
+  - [X] Support printing lambda and primitives
+  - [ ] Add new primitives
+    - car
+    - cdr
+    - list
+    - *
+    - =
+  - [ ] Ability to quit
+  - [ ] Negative numbers?
+  - [ ] Test printing lambdas and primitives
+* Compilation
+  - In SICP, meaning of registers is constant. In our virtual machine,
+    registers are general purpose, and there may be less registers
+    than required for each value (exp, val, argl etc.)
+  - Conceptually easy to convert a lambda definition into static code
+    (notwithstanding register usage which is non-trivial.
+  - Given the curent free registers, a target register and any
+    prerequistites required to compile a given expression, provide a
+    wrapper function which will optionally generate stack push and pop
+    instrutions and provide the compilation routine with the requested
+    number of registers to use (including the target register).
+  - When dealing with symbols, need to intern the symbol at runtime
+    (unless it's a predefined symbol, in which case it's known at
+    compile time).
+  - ~quote~ effectively needs compile-time ~read~. Could initially
+    implement by calling out to ~read~ and parsing the stringified
+    expression.
